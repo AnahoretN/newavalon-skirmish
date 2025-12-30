@@ -1071,9 +1071,15 @@ const App = memo(function App() {
   }, [requestGamesList])
 
   const handleSaveSettings = useCallback((url: string) => {
-    localStorage.setItem('custom_ws_url', url.trim())
+    const trimmedUrl = url.trim()
+    const oldUrl = localStorage.getItem('custom_ws_url') || ''
+
+    // Only reconnect if URL actually changed
+    if (trimmedUrl !== oldUrl) {
+      localStorage.setItem('custom_ws_url', trimmedUrl)
+      forceReconnect()
+    }
     setModalsState(prev => ({ ...prev, isSettingsModalOpen: false }))
-    forceReconnect()
   }, [forceReconnect])
 
   const handleSyncAndRefresh = useCallback(() => {

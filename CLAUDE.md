@@ -45,7 +45,12 @@ Before commit **MANDATORY**:
    ```bash
    ngrok http 8822
    ```
-5. **Share ngrok URL with players** (they enter it in Settings)
+5. **Share ngrok URL with players**:
+   - Players open GitHub Pages URL
+   - Click Settings (gear icon in main menu)
+   - Enter WebSocket URL: `wss://xxxx-xxxx.ngrok-free.app`
+   - Click "Save and Apply"
+   - Connection status should show "Connected" (green)
 
 ### Merging
 - **Build & Test**:

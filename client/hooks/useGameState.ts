@@ -10,21 +10,34 @@ import { initializeReadyStatuses, removeAllReadyStatuses, resetPhaseReadyStatuse
 
 // Helper to determine the correct WebSocket URL
 const getWebSocketURL = () => {
-  const originalURL = localStorage.getItem('custom_ws_url') || window.location.href
-  if (originalURL && originalURL.trim() !== '') {
-    let url = originalURL.trim()
-    // Auto-correct protocol if user pasted http/https
-    if (url.startsWith('https://')) {
-      url = url.replace('https://', 'wss://')
-    } else if (url.startsWith('http://')) {
-      url = url.replace('http://', 'ws://')
-    }
-    logger.info(`Using custom WebSocket URL: ${url}`)
-    return url
+  const customUrl = localStorage.getItem('custom_ws_url')
+  if (!customUrl || customUrl.trim() === '') {
+    // No custom URL configured - user must set one in settings
+    logger.warn('No custom WebSocket URL configured in settings.')
+    return null
   }
 
-  // No default address. The user must provide one in settings.
-  return null
+  let url = customUrl.trim()
+  // Remove trailing slash
+  if (url.endsWith('/')) {
+    url = url.slice(0, -1)
+  }
+
+  // Auto-correct protocol if user pasted http/https
+  if (url.startsWith('https://')) {
+    url = url.replace('https://', 'wss://')
+  } else if (url.startsWith('http://')) {
+    url = url.replace('http://', 'ws://')
+  }
+
+  // Ensure the URL has a valid WebSocket protocol
+  if (!url.startsWith('ws://') && !url.startsWith('wss://')) {
+    logger.warn('Invalid WebSocket URL format (must start with ws:// or wss://)')
+    return null
+  }
+
+  logger.info(`Using custom WebSocket URL: ${url}`)
+  return url
 }
 
 export type ConnectionStatus = 'Connecting' | 'Connected' | 'Disconnected';
@@ -269,9 +282,17 @@ export const useGameState = () => {
           logger.info('Deck data synced with server')
         } else if (data.type === 'ERROR') {
           if (data.message.includes('not found') || data.message.includes('Dummy')) {
-            setGameState(createInitialState())
+            logger.info('Game not found error - clearing state')
+            // Clear game state immediately to prevent reconnection attempts
+            const newState = createInitialState()
+            setGameState(newState)
+            // Also update the ref immediately
+            gameStateRef.current = newState
             setLocalPlayerId(null)
             localStorage.removeItem('reconnection_data')
+            // Clear the joining game ref as well
+            joiningGameIdRef.current = null
+            logger.info('State cleared, gameId now =', gameStateRef.current.gameId)
           } else {
             console.warn('Server Error:', data.message)
           }
@@ -293,8 +314,8 @@ export const useGameState = () => {
         console.error('Failed to parse message from server:', event.data, error)
       }
     }
-    ws.current.onclose = () => {
-      logger.info('WebSocket connection closed. Attempting to reconnect in 3s...')
+    ws.current.onclose = (event) => {
+      logger.info('WebSocket connection closed')
       setConnectionStatus('Disconnected')
       if (!isManualExitRef.current) {
         if (reconnectTimeoutRef.current) {
@@ -344,14 +365,17 @@ export const useGameState = () => {
     localStorage.removeItem('reconnection_data')
     connectWebSocket()
     return () => {
+      isManualExitRef.current = true
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current)
       }
       if (ws.current) {
-        ws.current.onclose = null; ws.current.close()
+        ws.current.onclose = null
+        ws.current.close()
       }
     }
-  }, [connectWebSocket])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Run only once on mount
 
   const createGame = useCallback(() => {
     isManualExitRef.current = false

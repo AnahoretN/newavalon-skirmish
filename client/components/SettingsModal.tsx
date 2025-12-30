@@ -11,7 +11,7 @@ interface SettingsModalProps {
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave }) => {
   const { language, setLanguage, t } = useLanguage()
-  const [serverUrl, setServerUrl] = useState(window.location.href)
+  const [serverUrl, setServerUrl] = useState('')
 
   useEffect(() => {
     if (isOpen) {
@@ -25,9 +25,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
   }
 
   const handleSave = () => {
-    localStorage.setItem('custom_ws_url', serverUrl)
-    window.dispatchEvent(new Event('storage'))
-    onSave(serverUrl)
+    const trimmedUrl = serverUrl.trim()
+    onSave(trimmedUrl)
   }
 
   return (
@@ -61,10 +60,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
               type="text"
               value={serverUrl}
               onChange={(e) => setServerUrl(e.target.value)}
-              placeholder="e.g., ws://localhost:8080 or wss://my-server.com"
+              placeholder="wss://your-server.ngrok-free.app"
               className="w-full bg-gray-700 border border-gray-600 text-white font-mono rounded-lg p-2 focus:ring-indigo-500 focus:border-indigo-500"
               onKeyDown={(e) => e.key === 'Enter' && handleSave()}
             />
+            <p className="text-xs text-gray-400 mt-1">
+              WebSocket URL сервера игры (ws:// или wss://)
+            </p>
           </div>
         </div>
 

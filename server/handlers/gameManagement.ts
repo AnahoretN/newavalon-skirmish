@@ -112,9 +112,12 @@ export function handleUpdateState(ws, data) {
 export function handleJoinGame(ws, data) {
   try {
     const { gameId, playerToken } = data;
+    logger.info(`JOIN_GAME request: gameId=${gameId}, hasToken=${!!playerToken}`);
+
     const gameState = getGameState(gameId);
 
     if (!gameState) {
+      logger.warn(`Game ${gameId} not found, sending ERROR to client`);
       ws.send(JSON.stringify({
         type: 'ERROR',
         message: `Game with code ${gameId} not found.`

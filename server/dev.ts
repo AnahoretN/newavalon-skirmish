@@ -42,6 +42,24 @@ async function createDevServer() {
 
   // Setup API routes BEFORE Vite middleware so they take priority
   app.use(express.json({ limit: '10mb' }));
+
+  // CORS middleware for ngrok and remote connections
+  app.use((req, res, next) => {
+    // Allow any origin for ngrok/GitHub Pages setup
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.header('Access-Control-Allow-Credentials', 'true');
+
+    // ngrok free tier skip browser warning header
+    res.header('ngrok-skip-browser-warning', 'true');
+
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
   setupRoutes(app);
 
   // Use vite's connect instance as middleware (catch-all for SPA routing)
