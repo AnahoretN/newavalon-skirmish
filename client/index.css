@@ -1,0 +1,109 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Global Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1A202C; /* bg-panel-bg */
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4A5568; /* bg-gray-600 */
+  border-radius: 5px;
+  border: 2px solid #1A202C; /* border matches track/bg to create padding effect */
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #718096; /* bg-gray-500 */
+}
+
+/* For Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #4A5568 #1A202C;
+}
+
+@keyframes pulse-border-thick {
+  0%, 100% {
+    border-color: rgba(99, 102, 241, 1); /* indigo-500 */
+    box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.5);
+  }
+  50% {
+    border-color: rgba(255, 255, 255, 0.8);
+    box-shadow: 0 0 0 8px rgba(255, 255, 255, 0.3);
+  }
+}
+
+.animate-deck-reminder {
+  animation: pulse-border-thick 1s ease-in-out 5;
+}
+
+@keyframes pulse-deck-start {
+  0%, 100% {
+    border-color: transparent;
+    box-shadow: none;
+  }
+  50% {
+    border-color: #ffffff;
+    box-shadow: 0 0 0 3px #ffffff;
+  }
+}
+
+.animate-deck-start {
+  animation: pulse-deck-start 0.8s ease-in-out 5;
+}
+
+@keyframes float-up {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(-40px); opacity: 0; }
+}
+
+.animate-float-up {
+  animation: float-up 2s ease-out forwards;
+}
+
+@keyframes fade-out {
+  0% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.2); }
+}
+
+.animate-fade-out {
+  animation: fade-out 2s ease-out forwards;
+}
+
+/* Hero Foil Effect - Automatic Animation */
+.hero-foil-overlay {
+  background: linear-gradient(
+    115deg,
+    transparent 35%,
+    rgba(255, 215, 0, 0.15) 42%, /* Gold tint */
+    rgba(255, 255, 255, 0.3) 50%, /* White Shine */
+    rgba(0, 191, 255, 0.15) 58%, /* Blue tint */
+    transparent 65%
+  );
+  background-size: 300% 300%;
+  mix-blend-mode: color-dodge;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.hero-foil-overlay.animating {
+  animation: hero-shine-auto 0.75s ease-out forwards;
+}
+
+@keyframes hero-shine-auto {
+  0% {
+    background-position: 100% 100%;
+    opacity: 1;
+  }
+  100% {
+    background-position: 0% 0%;
+    opacity: 1;
+  }
+}

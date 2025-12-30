@@ -1,0 +1,258 @@
+/**
+ * @file Content data loader that fetches from the server API.
+ * This provides the same interface as before but fetches data from the server.
+ */
+
+import { DeckType } from './types'
+import type { Card, CounterDefinition } from './types'
+
+// --- Type assertion for the imported JSON data ---
+interface RawDecksJson {
+  cardDatabase: Record<string, Omit<Card, 'id' | 'deck'>>;
+  tokenDatabase: Record<string, Omit<Card, 'id' | 'deck'>>;
+  countersDatabase: Record<string, Omit<CounterDefinition, 'id'>>;
+  deckFiles: {
+    id: DeckType;
+    name: string;
+    isSelectable: boolean;
+    cards: { cardId: string; quantity: number }[];
+  }[];
+}
+
+// Base definition of a card, without instance-specific properties like id or deck.
+export type CardDefinition = Omit<Card, 'id' | 'deck'>;
+
+// --- Internal state management (prefixed with _) ---
+let _rawJsonData: RawDecksJson | null = null
+let _cardDatabase: Map<string, CardDefinition> = new Map()
+let _tokenDatabase: Map<string, CardDefinition> = new Map()
+let _countersDatabase: Record<string, Omit<CounterDefinition, 'id'>> = {}
+let _deckFiles: RawDecksJson['deckFiles'] = []
+let _decksData: Record<string, Card[]> = {}
+
+// A Set of card IDs that are considered "Command" cards for special handling.
+const _commandCardIds = new Set([
+  'overwatch',
+  'repositioning',
+  'tacticalManeuver',
+  'mobilization',
+  'inspiration',
+  'dataInterception',
+  'falseOrders',
+  'experimentalStimulants',
+  'logisticsChain',
+  'quickResponseTeam',
+  'temporaryShelter',
+  'enhancedInterrogation',
+])
+
+/**
+ * Fetch content database from server
+ */
+export async function fetchContentDatabase(): Promise<void> {
+  try {
+    const response = await fetch('/api/content/database')
+    if (!response.ok) {
+      throw new Error(`Failed to fetch content database: ${response.statusText}`)
+    }
+    const data = await response.json()
+
+    // Transform API response to match expected format
+    const cards: [string, CardDefinition][] = data.cards.map(([id, card]: [string, CardDefinition]) => [id, card])
+    const tokens: [string, CardDefinition][] = data.tokens.map(([id, token]: [string, CardDefinition]) => [id, token])
+
+    _rawJsonData = {
+      cardDatabase: Object.fromEntries(cards),
+      tokenDatabase: Object.fromEntries(tokens),
+      countersDatabase: Object.fromEntries(data.counters),
+      deckFiles: data.deckFiles
+    }
+
+    // Initialize databases
+    _cardDatabase = new Map(cards)
+    _tokenDatabase = new Map(tokens)
+    _countersDatabase = _rawJsonData.countersDatabase
+    _deckFiles = _rawJsonData.deckFiles
+
+    // Update exported values (for backward compatibility)
+    rawJsonData = _rawJsonData
+    cardDatabase = _cardDatabase
+    tokenDatabase = _tokenDatabase
+    countersDatabase = _countersDatabase
+    deckFiles = _deckFiles
+
+    // Note: STATUS_ICONS and STATUS_DESCRIPTIONS in constants.ts are now Proxy objects
+    // that automatically fetch from countersDatabase, so no manual update needed
+
+    // Build decks data
+    _decksData = buildDecksData()
+    decksData = _decksData
+  } catch (error) {
+    console.error('Failed to load content database:', error)
+    throw error
+  }
+}
+
+/**
+ * Processes the raw JSON data into a complete, playable deck data structure.
+ * It combines card definitions with deck lists, expands card quantities,
+ * and generates unique, dynamic IDs for each card instance.
+ * @returns {Record<string, Card[]>} The fully constructed deck data object.
+ */
+function buildDecksData(): Record<string, Card[]> {
+  const builtDecks: Record<string, Card[]> = {}
+
+  for (const deckFile of _deckFiles) {
+    const deckCardList: Card[] = []
+
+    // Iterate through the card list in the deck definition file
+    for (const deckEntry of deckFile.cards) {
+      const cardDef = _cardDatabase.get(deckEntry.cardId)
+      if (!cardDef) {
+        console.warn(`Card definition not found for ID: ${deckEntry.cardId} in deck: ${deckFile.name}`)
+        continue
+      }
+
+      const isCommandCard = _commandCardIds.has(deckEntry.cardId)
+
+      // Add the specified quantity of each card to the deck
+      for (let i = 0; i < deckEntry.quantity; i++) {
+        // Use a collision-safe key encoding (base64url-like)
+        const safeCardId = deckEntry.cardId.replace(/-/g, '--DASH--')
+        const cardKey = safeCardId.toUpperCase()
+
+        if (isCommandCard) {
+          deckCardList.push({
+            ...cardDef,
+            deck: DeckType.Command,
+            id: `CMD_${cardKey}_${i + 1}`,
+            baseId: deckEntry.cardId, // Set baseId for localization
+            faction: cardDef.faction || 'Command',
+          })
+        } else {
+          deckCardList.push({
+            ...cardDef,
+            deck: deckFile.id,
+            id: `${deckFile.id.substring(0, 3).toUpperCase()}_${cardKey}_${i + 1}`,
+            baseId: deckEntry.cardId, // Set baseId for localization
+            faction: cardDef.faction || deckFile.id,
+          })
+        }
+      }
+    }
+
+    builtDecks[deckFile.id] = deckCardList
+  }
+
+  // Add the special "Tokens" deck, which is built from the token database.
+  // Tokens use their defined types, with an empty array fallback (not hardcoded).
+  builtDecks[DeckType.Tokens] = Array.from(_tokenDatabase.entries()).map(([tokenId, tokenDef]) => {
+    const types = tokenDef.types ? [...tokenDef.types] : []
+
+    return {
+      id: `TKN_${tokenDef.name.toUpperCase().replace(/\s/g, '_')}`,
+      baseId: tokenId, // Set baseId for localization
+      deck: DeckType.Tokens,
+      name: tokenDef.name,
+      imageUrl: tokenDef.imageUrl,
+      fallbackImage: tokenDef.fallbackImage,
+      power: tokenDef.power,
+      ability: tokenDef.ability,
+      color: tokenDef.color,
+      types: types,
+      flavorText: tokenDef.flavorText,
+      faction: 'Tokens',
+    }
+  })
+
+  return builtDecks
+}
+
+// --- Backward compatibility exports ---
+// These are mutable exports that will be updated after fetchContentDatabase
+
+/**
+ * Raw JSON data (for backward compatibility) - populated after fetchContentDatabase
+ */
+export let rawJsonData: RawDecksJson | null = null
+
+/**
+ * Card database (for backward compatibility) - populated after fetchContentDatabase
+ */
+export let cardDatabase: Map<string, CardDefinition> = new Map()
+
+/**
+ * Token database (for backward compatibility) - populated after fetchContentDatabase
+ */
+export let tokenDatabase: Map<string, CardDefinition> = new Map()
+
+/**
+ * Counters database (for backward compatibility) - populated after fetchContentDatabase
+ */
+export let countersDatabase: Record<string, Omit<CounterDefinition, 'id'>> = {}
+
+/**
+ * Deck files (for backward compatibility) - populated after fetchContentDatabase
+ */
+export let deckFiles: RawDecksJson['deckFiles'] = []
+
+/**
+ * Decks data (for backward compatibility) - populated after fetchContentDatabase
+ */
+export let decksData: Record<string, Card[]> = {}
+
+/**
+ * Command card IDs set
+ */
+export const commandCardIds = _commandCardIds
+
+/**
+ * A utility function to get all selectable deck definitions for the UI.
+ * @returns An array of deck file definitions that are marked as selectable.
+ */
+export const getSelectableDecks = () => {
+  return _deckFiles.filter(df => df.isSelectable)
+}
+
+/**
+ * Retrieves a card's base definition by its ID from the master card database.
+ * @param {string} cardId The ID of the card (e.g., 'ipDeptAgent').
+ * @returns {CardDefinition | undefined} The card definition or undefined if not found.
+ */
+export function getCardDefinition(cardId: string): CardDefinition | undefined {
+  return _cardDatabase.get(cardId)
+}
+
+/**
+ * Helper to find a card definition by its name (fuzzy match).
+ * @param {string} name The name of the card.
+ * @returns {CardDefinition | undefined}
+ */
+export function getCardDefinitionByName(name: string): CardDefinition | undefined {
+  return Array.from(_cardDatabase.values()).find(c => c.name === name)
+}
+
+/**
+ * Retrieves a list of all non-token cards for use in the deck builder library.
+ * @returns An array of objects, each containing the card's ID and its definition.
+ */
+export function getAllCards(): { id: string, card: CardDefinition }[] {
+  return Array.from(_cardDatabase.entries()).map(([id, card]) => ({ id, card }))
+}
+
+// Note: Exports are mutable and will be updated after fetchContentDatabase() is called
+
+/**
+ * Get the internal card database Map (for reactive updates in components)
+ * This allows components to track when data changes
+ */
+export function getCardDatabaseMap(): Map<string, CardDefinition> {
+  return _cardDatabase
+}
+
+/**
+ * Get the internal token database Map
+ */
+export function getTokenDatabaseMap(): Map<string, CardDefinition> {
+  return _tokenDatabase
+}

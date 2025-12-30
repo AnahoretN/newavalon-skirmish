@@ -1,0 +1,57 @@
+{
+  "name": "new-avalon-skirmish",
+  "version": "0.2.3",
+  "description": "A virtual tabletop for the New Avalon: Skirmish card game.",
+  "type": "module",
+  "scripts": {
+    "dev": "node --import tsx/esm server/dev.ts",
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "vite build --mode production",
+    "build:gh-pages": "BASE_URL=/newavalon.xyz vite build --mode production",
+    "build:server": "tsc --project tsconfig.server.json",
+    "start": "node dist-server/index.js",
+    "preview": "vite preview",
+    "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
+    "lint:fix": "eslint . --ext .ts,.tsx,.js,.jsx --fix",
+    "type-check": "tsc --build --force",
+    "type-check:client": "tsc --project tsconfig.client.json --noEmit",
+    "type-check:server": "tsc --project tsconfig.server.json --noEmit"
+  },
+  "engines": {
+    "node": "18.x"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "express-ws": "^5.0.2",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "ws": "^8.17.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@types/express": "^5.0.6",
+    "@types/express-ws": "^3.0.6",
+    "@types/node": "^20.19.27",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@types/ws": "^8.18.1",
+    "@typescript-eslint/eslint-plugin": "^8.50.0",
+    "@typescript-eslint/parser": "^8.50.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.19",
+    "concurrently": "^8.2.2",
+    "eslint": "^9.39.2",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.26",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.3",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.4.5",
+    "vite": "^5.2.11",
+    "vite-express": "^0.21.1"
+  }
+}
