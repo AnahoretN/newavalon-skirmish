@@ -1,10 +1,14 @@
 /**
- * @file Content data loader that fetches from the server API.
- * This provides the same interface as before but fetches data from the server.
+ * @file Content data loader - supports both embedded JSON and server API.
+ * For GitHub Pages (static hosting), loads from embedded JSON.
+ * For local development, can fetch from server API.
  */
 
 import { DeckType } from './types'
 import type { Card, CounterDefinition } from './types'
+
+// Import embedded content database for static builds (GitHub Pages)
+import embeddedDatabase from '../server/content/contentDatabase.json'
 
 // --- Type assertion for the imported JSON data ---
 interface RawDecksJson {
@@ -47,32 +51,46 @@ const _commandCardIds = new Set([
 ])
 
 /**
- * Fetch content database from server
+ * Initialize content database from embedded JSON or server API
+ * For GitHub Pages, uses embedded JSON directly.
+ * For local dev with server, can fetch from API.
  */
 export async function fetchContentDatabase(): Promise<void> {
   try {
-    const response = await fetch('/api/content/database')
-    if (!response.ok) {
-      throw new Error(`Failed to fetch content database: ${response.statusText}`)
-    }
-    const data = await response.json()
+    let data: RawDecksJson
 
-    // Transform API response to match expected format
-    const cards: [string, CardDefinition][] = data.cards.map(([id, card]: [string, CardDefinition]) => [id, card])
-    const tokens: [string, CardDefinition][] = data.tokens.map(([id, token]: [string, CardDefinition]) => [id, token])
+    // Try to fetch from server API first (for local development with server)
+    // If that fails (e.g., on GitHub Pages), use embedded JSON
+    try {
+      const response = await fetch('/api/content/database')
+      if (response.ok) {
+        const apiData = await response.json()
+        // Transform API response to match expected format
+        const cards: [string, CardDefinition][] = apiData.cards.map(([id, card]: [string, CardDefinition]) => [id, card])
+        const tokens: [string, CardDefinition][] = apiData.tokens.map(([id, token]: [string, CardDefinition]) => [id, token])
 
-    _rawJsonData = {
-      cardDatabase: Object.fromEntries(cards),
-      tokenDatabase: Object.fromEntries(tokens),
-      countersDatabase: Object.fromEntries(data.counters),
-      deckFiles: data.deckFiles
+        data = {
+          cardDatabase: Object.fromEntries(cards),
+          tokenDatabase: Object.fromEntries(tokens),
+          countersDatabase: Object.fromEntries(apiData.counters),
+          deckFiles: apiData.deckFiles
+        }
+      } else {
+        // Server responded but not OK, use embedded data
+        data = embeddedDatabase as RawDecksJson
+      }
+    } catch {
+      // Fetch failed (likely on GitHub Pages), use embedded data
+      data = embeddedDatabase as RawDecksJson
     }
+
+    _rawJsonData = data
 
     // Initialize databases
-    _cardDatabase = new Map(cards)
-    _tokenDatabase = new Map(tokens)
-    _countersDatabase = _rawJsonData.countersDatabase
-    _deckFiles = _rawJsonData.deckFiles
+    _cardDatabase = new Map(Object.entries(data.cardDatabase))
+    _tokenDatabase = new Map(Object.entries(data.tokenDatabase))
+    _countersDatabase = data.countersDatabase
+    _deckFiles = data.deckFiles
 
     // Update exported values (for backward compatibility)
     rawJsonData = _rawJsonData
@@ -80,9 +98,6 @@ export async function fetchContentDatabase(): Promise<void> {
     tokenDatabase = _tokenDatabase
     countersDatabase = _countersDatabase
     deckFiles = _deckFiles
-
-    // Note: STATUS_ICONS and STATUS_DESCRIPTIONS in constants.ts are now Proxy objects
-    // that automatically fetch from countersDatabase, so no manual update needed
 
     // Build decks data
     _decksData = buildDecksData()

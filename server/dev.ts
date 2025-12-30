@@ -51,7 +51,7 @@ async function createDevServer() {
   setupWebSocket(wss);
 
   // Start server
-  const PORT = process.env.PORT || 8080;
+  const PORT = process.env.PORT || 8822;
   const server = app.listen(PORT, () => {
     logger.info(`🚀 Development server running on http://localhost:${PORT}`);
     logger.info(`📦 Vite middleware integrated`);
