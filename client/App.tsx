@@ -212,32 +212,6 @@ const App = memo(function App() {
     return localPlayer?.autoDrawEnabled ?? true // Default to true if not set
   }, [gameState.players, localPlayerId])
 
-  // Sync auto-draw setting with localStorage when player joins game
-  // And apply saved setting to the player
-  useEffect(() => {
-    if (!localPlayerId || !gameState.gameId || gameState.isGameStarted) {
-      return
-    }
-
-    // Load saved auto-draw preference from localStorage
-    let savedAutoDraw = true // Default to true
-    try {
-      const saved = localStorage.getItem('auto_draw_enabled')
-      if (saved !== null) {
-        savedAutoDraw = saved === 'true'
-      }
-    } catch {
-      // Ignore localStorage errors
-    }
-
-    // Check if current player's autoDraw setting matches saved value
-    const localPlayer = gameState.players.find(p => p.id === localPlayerId)
-    if (localPlayer && localPlayer.autoDrawEnabled !== savedAutoDraw) {
-      // Send update to server to sync
-      toggleAutoDraw(localPlayerId, savedAutoDraw)
-    }
-  }, [localPlayerId, gameState.gameId, gameState.isGameStarted, gameState.players, toggleAutoDraw])
-
   // Save auto-draw setting to localStorage when it changes
   useEffect(() => {
     if (!localPlayerId) {
@@ -1094,6 +1068,18 @@ const App = memo(function App() {
     setModalsState(prev => ({ ...prev, isSettingsModalOpen: false }))
   }, [forceReconnect])
 
+  // Handle invite link - auto-join game
+  useEffect(() => {
+    const inviteGameId = sessionStorage.getItem('invite_game_id')
+    if (inviteGameId && !gameState.gameId && connectionStatus === 'Connected') {
+      console.log('[App] Auto-joining game from invite link:', inviteGameId)
+      // Clear the stored invite ID so we don't try again
+      sessionStorage.removeItem('invite_game_id')
+      // Join the game using handleJoinGame
+      handleJoinGame(inviteGameId)
+    }
+  }, [connectionStatus, gameState.gameId, handleJoinGame])
+
   const handleSyncAndRefresh = useCallback(() => {
     const newVersion = Date.now()
     setImageRefreshVersion(newVersion)
@@ -1589,6 +1575,8 @@ const App = memo(function App() {
         gameState={gameState}
         imageRefreshVersion={imageRefreshVersion}
         t={t}
+        connectionStatus={connectionStatus}
+        forceReconnect={forceReconnect}
       />
     )
   }

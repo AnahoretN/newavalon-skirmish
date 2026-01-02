@@ -5,6 +5,39 @@ import './index.css'
 import App from './App'
 import { LanguageProvider } from './contexts/LanguageContext'
 
+// Parse URL parameters for invite links
+const urlParams = new URLSearchParams(window.location.search)
+const inviteGameId = urlParams.get('game')
+const inviteServerUrl = urlParams.get('server')
+const encodedServerUrl = urlParams.get('s')
+
+// Store invite data in sessionStorage for App to use
+if (inviteGameId) {
+  sessionStorage.setItem('invite_game_id', inviteGameId)
+}
+if (inviteServerUrl) {
+  // Auto-configure server URL from invite link (legacy parameter)
+  localStorage.setItem('websocket_url', inviteServerUrl)
+}
+// Handle new encoded server URL parameter
+if (encodedServerUrl) {
+  try {
+    // Decode base64 and then URI decode
+    const decodedServerUrl = decodeURIComponent(atob(encodedServerUrl))
+    // Validate it's a safe WebSocket URL
+    if (decodedServerUrl && (decodedServerUrl.startsWith('ws://') || decodedServerUrl.startsWith('wss://'))) {
+      localStorage.setItem('websocket_url', decodedServerUrl)
+    }
+  } catch (e) {
+    console.error('Failed to decode server URL:', e)
+  }
+}
+
+// Clear URL parameters for security (so they don't persist in browser history)
+if (inviteGameId || inviteServerUrl || encodedServerUrl) {
+  window.history.replaceState({}, '', window.location.pathname)
+}
+
 class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean}> {
   constructor(props: {children: React.ReactNode}) {
     super(props)

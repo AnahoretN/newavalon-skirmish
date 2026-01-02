@@ -7,6 +7,7 @@ import { CardDetailModal } from './CardDetailModal'
 import type { GameState, Card, Player } from '@/types'
 import { STATUS_DESCRIPTIONS } from '@/constants'
 import { APP_VERSION } from '@/version'
+import type { ConnectionStatus } from '@/hooks/useGameState'
 
 interface MainMenuProps {
     handleCreateGame: () => void;
@@ -27,6 +28,8 @@ interface MainMenuProps {
     gameState: GameState;
     imageRefreshVersion: number;
     t: (key: any) => string;
+    connectionStatus: ConnectionStatus;
+    forceReconnect: () => void;
 }
 
 export const MainMenu: React.FC<MainMenuProps> = memo(({
@@ -48,6 +51,8 @@ export const MainMenu: React.FC<MainMenuProps> = memo(({
   gameState,
   imageRefreshVersion,
   t,
+  connectionStatus,
+  forceReconnect,
 }) => {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white relative overflow-hidden">
@@ -163,6 +168,8 @@ export const MainMenu: React.FC<MainMenuProps> = memo(({
         isOpen={isSettingsModalOpen}
         onClose={() => setSettingsModalOpen(false)}
         onSave={handleSaveSettings}
+        connectionStatus={connectionStatus}
+        onReconnect={forceReconnect}
       />
 
       <RulesModal
