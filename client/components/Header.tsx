@@ -175,12 +175,12 @@ const GameSettingsMenu = memo<{
         <span className="text-gray-300 text-sm">{t('autoAbilities')}</span>
         <button
           onClick={() => onToggleAutoAbilities(!isAutoAbilitiesEnabled)}
-          disabled={!isHost || isGameStarted}
+          disabled={!isHost}
           className={`px-3 py-1 rounded text-xs font-bold transition-colors ${
             isAutoAbilitiesEnabled
               ? 'bg-green-600 text-white'
               : 'bg-gray-600 text-gray-400'
-          } ${!isHost || isGameStarted ? 'opacity-50 cursor-not-allowed' : ''}`}
+          } ${!isHost ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
           {isAutoAbilitiesEnabled ? t('on') : t('off')}
         </button>
@@ -501,7 +501,12 @@ const Header = memo<HeaderProps>(({
           <button
             ref={inviteButtonRef}
             onClick={() => setInviteMenuOpen(!inviteMenuOpen)}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-3 rounded text-sm transition-colors"
+            disabled={isGameStarted}
+            className={`font-medium py-2 px-3 rounded text-sm transition-colors ${
+              isGameStarted
+                ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+            }`}
           >
             {t('invitePlayer')}
           </button>

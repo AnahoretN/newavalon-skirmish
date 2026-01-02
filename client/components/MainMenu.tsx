@@ -19,6 +19,7 @@ interface MainMenuProps {
     setJoinModalOpen: (open: boolean) => void;
     handleJoinGame: (gameId: string) => void;
     gamesList: { gameId: string; playerCount: number }[];
+    requestGamesList: () => void;
     isDeckBuilderOpen: boolean;
     setViewingCard: React.Dispatch<React.SetStateAction<{ card: Card; player?: Player } | null>>;
     isSettingsModalOpen: boolean;
@@ -45,6 +46,7 @@ export const MainMenu: React.FC<MainMenuProps> = memo(({
   setJoinModalOpen,
   handleJoinGame,
   gamesList,
+  requestGamesList,
   isDeckBuilderOpen,
   setViewingCard,
   isSettingsModalOpen,
@@ -206,6 +208,7 @@ export const MainMenu: React.FC<MainMenuProps> = memo(({
         onClose={() => setJoinModalOpen(false)}
         onJoin={handleJoinGame}
         games={gamesList}
+        onRefreshGames={requestGamesList}
       />
 
       <DeckBuilderModal

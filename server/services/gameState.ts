@@ -209,7 +209,7 @@ export function getAllGameStates(): GameState[] {
  */
 export function getPublicGames(): Array<{gameId: string, playerCount: number, maxPlayers: number, isGameStarted: boolean, gameMode: string}> {
   return Array.from(gameStates.values())
-    .filter(game => !game.isPrivate)
+    .filter(game => !game.isPrivate && !game.isGameStarted)
     .map(game => ({
       gameId: game.id,
       playerCount: game.players.length,

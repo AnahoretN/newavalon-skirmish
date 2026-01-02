@@ -154,6 +154,16 @@ export function handleJoinGame(ws, data) {
       return;
     }
 
+    // Check if game has already started
+    if (gameState.isGameStarted) {
+      logger.warn(`Game ${gameId} has already started, sending ERROR to client`);
+      ws.send(JSON.stringify({
+        type: 'ERROR',
+        message: 'This game has already started.'
+      }));
+      return;
+    }
+
     // Store the game ID on the WebSocket connection
     ws.gameId = gameId;
     associateClientWithGame(ws, gameId);

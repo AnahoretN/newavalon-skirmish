@@ -446,6 +446,16 @@ export const useGameState = () => {
             setLocalPlayerId(null)
             clearGameState()
             joiningGameIdRef.current = null
+          } else if (data.message.includes('already started')) {
+            // Game already started - show alert and return to menu
+            logger.info('Game already started - showing alert and returning to menu')
+            alert('This game has already started.')
+            const newState = createInitialState()
+            setGameState(newState)
+            gameStateRef.current = newState
+            setLocalPlayerId(null)
+            clearGameState()
+            joiningGameIdRef.current = null
           } else {
             console.warn('Server Error:', data.message)
           }

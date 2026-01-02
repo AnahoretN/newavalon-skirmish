@@ -131,6 +131,7 @@ const App = memo(function App() {
     isTeamAssignOpen: false,
   })
 
+
   const [commandModalCard, setCommandModalCard] = useState<Card | null>(null)
   const [counterSelectionData, setCounterSelectionData] = useState<CounterSelectionData | null>(null)
   const [topDeckViewState, setTopDeckViewState] = useState<{
@@ -1026,12 +1027,14 @@ const App = memo(function App() {
     if (!isHost) {
       return
     }
+    // Make game private when starting
+    setGamePrivacy(true)
     if (gameState.gameMode === GameMode.FreeForAll) {
       startReadyCheck()
     } else {
       setModalsState(prev => ({ ...prev, isTeamAssignOpen: true }))
     }
-  }, [isHost, gameState.gameMode, startReadyCheck])
+  }, [isHost, gameState.gameMode, startReadyCheck, setGamePrivacy])
 
   const handleTeamAssignment = useCallback((teamAssignments: Record<number, number[]>) => {
     assignTeams(teamAssignments)
@@ -1048,6 +1051,12 @@ const App = memo(function App() {
     createGame()
     setLocalPlayerId(1)
   }, [createGame, setLocalPlayerId])
+
+  const handleResetGameWithRestore = useCallback(() => {
+    resetGame()
+    // Set game to private after New Game
+    setGamePrivacy(true)
+  }, [resetGame, setGamePrivacy])
 
   const handleOpenJoinModal = useCallback(() => {
     requestGamesList()
@@ -1565,6 +1574,7 @@ const App = memo(function App() {
         setJoinModalOpen={(open) => setModalsState(prev => ({ ...prev, isJoinModalOpen: open }))}
         handleJoinGame={handleJoinGame}
         gamesList={gamesList}
+        requestGamesList={requestGamesList}
         isDeckBuilderOpen={modalsState.isDeckBuilderOpen}
         setViewingCard={setViewingCard}
         isSettingsModalOpen={modalsState.isSettingsModalOpen}
@@ -1589,7 +1599,7 @@ const App = memo(function App() {
         gameId={gameState.gameId}
         isGameStarted={gameState.isGameStarted}
         onStartGame={handleStartGameSequence}
-        onResetGame={resetGame}
+        onResetGame={handleResetGameWithRestore}
         activeGridSize={gameState.activeGridSize}
         onGridSizeChange={setActiveGridSize}
         dummyPlayerCount={gameState.dummyPlayerCount}
@@ -1801,7 +1811,7 @@ const App = memo(function App() {
         {localPlayer && (
           <div
             ref={leftPanelRef}
-            className="absolute left-0 top-14 bottom-[2px] z-30 bg-panel-bg shadow-xl flex flex-col border-r border-gray-700 w-fit min-w-0 pl-[2px] py-[2px] pr-0 transition-all duration-100 overflow-hidden"
+            className="absolute left-0 top-14 bottom-[2px] z-30 bg-panel-bg shadow-xl flex flex-col w-fit min-w-0 pl-[2px] py-[2px] pr-0 transition-all duration-100 overflow-hidden"
             style={{ width: sidePanelWidth }}
           >
             <PlayerPanel
@@ -1883,7 +1893,7 @@ const App = memo(function App() {
         </div>
 
         <div
-          className="absolute right-0 top-14 bottom-[2px] z-30 bg-panel-bg shadow-xl flex flex-col border-l border-gray-700 min-w-0 pr-[2px] py-[2px] pl-0 transition-all duration-100 overflow-hidden"
+          className="absolute right-0 top-14 bottom-[2px] z-30 bg-panel-bg shadow-xl flex flex-col min-w-0 pr-[2px] py-[2px] pl-0 transition-all duration-100 overflow-hidden"
           style={{ width: sidePanelWidth }}
         >
           <div className="flex flex-col h-full w-full">

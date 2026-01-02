@@ -6,9 +6,10 @@ interface JoinGameModalProps {
   onClose: () => void;
   onJoin: (gameId: string) => void;
   games: { gameId: string; playerCount: number }[];
+  onRefreshGames: () => void;
 }
 
-const JoinGameModal: React.FC<JoinGameModalProps> = memo(({ isOpen, onClose, onJoin, games }) => {
+const JoinGameModal: React.FC<JoinGameModalProps> = memo(({ isOpen, onClose, onJoin, games, onRefreshGames }) => {
   const { t } = useLanguage()
   const [gameIdInput, setGameIdInput] = useState('')
 
@@ -54,7 +55,16 @@ const JoinGameModal: React.FC<JoinGameModalProps> = memo(({ isOpen, onClose, onJ
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-[5px]">
       <div className="bg-gray-800 rounded-lg p-6 shadow-xl w-full max-w-6xl flex flex-col max-h-[calc(100vh-10px)]">
-        <h2 className="text-2xl font-bold mb-4 flex-shrink-0">{t('joinGame')}</h2>
+        <div className="flex items-center gap-3 mb-4 flex-shrink-0">
+          <h2 className="text-2xl font-bold">{t('joinGame')}</h2>
+          <button
+            onClick={onRefreshGames}
+            className="w-8 h-8 flex items-center justify-center bg-gray-700 hover:bg-gray-600 text-white rounded transition-colors"
+            title="Refresh games"
+          >
+            ↻
+          </button>
+        </div>
 
         <h3 className="text-lg font-semibold text-gray-300 mb-2 flex-shrink-0">{t('activeGames')}</h3>
         <div className="flex-grow overflow-y-auto pr-2 border-b border-gray-700 pb-4 mb-4 custom-scrollbar min-h-[100px]">

@@ -368,7 +368,7 @@ export const GameBoard = memo<GameBoardProps>(({
   }, [activeBoard, board.length, activeGridSize, validTargets, noTargetOverlay, activeFloatingTexts])
 
   return (
-    <div className="relative p-2 bg-board-bg rounded-xl shadow-2xl h-full aspect-square transition-all duration-300">
+    <div className="relative p-2 bg-board-bg rounded-xl h-full aspect-square transition-all duration-300">
       <div className={`grid ${gridSizeClasses[activeGridSize]} gap-0.5 h-full w-full`}>
         {processedCells.map((rowCells) =>
           rowCells.map(({
