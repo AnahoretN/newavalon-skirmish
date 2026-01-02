@@ -37,6 +37,8 @@ const getWebSocketURL = () => {
   }
 
   logger.info(`Using custom WebSocket URL: ${url}`)
+  // Store the validated URL for link sharing
+  localStorage.setItem('websocket_url', url)
   return url
 }
 
@@ -364,6 +366,11 @@ export const useGameState = () => {
     ws.current.onopen = () => {
       logger.info('WebSocket connection established')
       setConnectionStatus('Connected')
+      // Save the active WebSocket URL for link sharing
+      const customUrl = localStorage.getItem('custom_ws_url')
+      if (customUrl && customUrl.trim() !== '') {
+        localStorage.setItem('websocket_url', customUrl.trim())
+      }
       const currentGameState = gameStateRef.current
       if (currentGameState && currentGameState.gameId && ws.current?.readyState === WebSocket.OPEN) {
         let playerToken = undefined

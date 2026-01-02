@@ -27,6 +27,8 @@ if (encodedServerUrl) {
     // Validate it's a safe WebSocket URL
     if (decodedServerUrl && (decodedServerUrl.startsWith('ws://') || decodedServerUrl.startsWith('wss://'))) {
       localStorage.setItem('websocket_url', decodedServerUrl)
+      // Also save to custom_ws_url so getWebSocketURL() can use it for connection
+      localStorage.setItem('custom_ws_url', decodedServerUrl)
     }
   } catch (e) {
     console.error('Failed to decode server URL:', e)

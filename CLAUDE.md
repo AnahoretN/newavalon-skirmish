@@ -81,8 +81,8 @@ Before commit **MANDATORY**:
 │   │   ├── GameBoard.tsx         # React.FC({board: Board, isGameStarted: boolean, activeGridSize: GridSize, handleDrop: (item: DragItem, target: DropTarget) => void, draggedItem: DragItem | null, setDraggedItem: (item: DragItem | null) => void, openContextMenu: (e: React.MouseEvent, type: 'boardItem' | 'emptyBoardCell', data: any) => void, playMode: { card: Card; sourceItem: DragItem; faceDown?: boolean } | null, setPlayMode: (mode: null) => void, highlight: HighlightData | null, playerColorMap: Map<number, PlayerColor>, localPlayerId: number | null, onCardDoubleClick: (card: Card, boardCoords: { row: number; col: number }) => void, onEmptyCellDoubleClick: (boardCoords: { row: number; col: number }) => void, imageRefreshVersion?: number, cursorStack: { type: string; count: number } | null, currentPhase?: number, activePlayerId?: number, onCardClick?: (card: Card, boardCoords: { row: number; col: number }) => void, onEmptyCellClick?: (boardCoords: { row: number; col: number }) => void, validTargets?: {row: number, col: number}[], noTargetOverlay?: {row: number, col: number} | null, disableActiveHighlights?: boolean, preserveDeployAbilities?: boolean, activeFloatingTexts?: FloatingTextData[], abilitySourceCoords?: { row: number, col: number } | null, abilityCheckKey?: number})
 │   │   ├── PlayerPanel.tsx       # React.FC({player: Player, isLocalPlayer: boolean, localPlayerId: number | null, isSpectator: boolean, isGameStarted: boolean, onNameChange: (name: string) => void, onColorChange: (color: PlayerColor) => void, onScoreChange: (delta: number) => void, onDeckChange: (deckType: DeckType) => void, onLoadCustomDeck: (deckFile: CustomDeckFile) => void, onDrawCard: () => void, handleDrop: (item: DragItem, target: DropTarget) => void, draggedItem: DragItem | null, setDraggedItem: (item: DragItem | null) => void, openContextMenu: (e: React.MouseEvent, type: ContextMenuParams['type'], data: ContextMenuData) => void, onHandCardDoubleClick: (player: Player, card: Card, index: number) => void, playerColorMap: Map<number, PlayerColor>, allPlayers: Player[], localPlayerTeamId?: number, activePlayerId?: number, onToggleActivePlayer: (playerId: number) => void, imageRefreshVersion: number, layoutMode: 'list-local' | 'list-remote', onCardClick?: (player: Player, card: Card, index: number) => void, validHandTargets?: { playerId: number, cardIndex: number }[], onAnnouncedCardDoubleClick?: (player: Player, card: Card) => void, currentPhase: number, disableActiveHighlights?: boolean, preserveDeployAbilities?: boolean, roundWinners?: Record<number, number[]>, startingPlayerId?: number, onDeckClick?: (playerId: number) => void, isDeckSelectable?: boolean})
 │   │   ├── Card.tsx              # React.FC with split props: CardCoreProps({card: Card, isFaceUp: boolean, playerColorMap: Map<number, PlayerColor>, imageRefreshVersion?: number, smallStatusIcons?: boolean, extraPowerSpacing?: boolean, hidePower?: boolean}) and CardInteractionProps({localPlayerId?: number | null, disableTooltip?: boolean, activePhaseIndex?: number, activePlayerId?: number, disableActiveHighlights?: boolean, preserveDeployAbilities?: boolean, activeAbilitySourceCoords?: { row: number, col: number } | null, boardCoords?: { row: number, col: number } | null, abilityCheckKey?: number})
-│   │   ├── Header.tsx            # React.FC({gameState: GameState | null, currentPlayerId: number | null, onDisconnect: () => void, t: (key: string) => string})
-│   │   ├── MainMenu.tsx          # React.FC({onNewGame: () => void, onJoinGame: () => void, onDeckBuilding: () => void, onRules: () => void, onSettings: () => void, onExit: () => void, t: (key: string) => string})
+│   │   ├── Header.tsx            # React.FC with InvitePlayerMenu for game invites (copy link with gameId + encoded server URL), StatusIndicator (connection status), RoundTracker, PhaseControls, GameSettings menu
+│   │   ├── MainMenu.tsx          # React.FC with connectionStatus and forceReconnect props, passes to SettingsModal
 │   │   ├── TopDeckView.tsx       # React.FC({players: Player[], localPlayerId: number | null, gameState: GameState | null, onPlayerClick: (playerId: number) => void, t: (key: string) => string})
 │   │   ├── JoinGameModal.tsx     # React.FC({isOpen: boolean, onClose: () => void, onJoin: (data: { playerName: string; gameCode: string }) => void, games: any[]})
 │   │   ├── TeamAssignmentModal.tsx # React.FC({players: Player[], gameMode: GameMode, onCancel: () => void, onConfirm: (teams: any) => void})
@@ -93,7 +93,7 @@ Before commit **MANDATORY**:
 │   │   ├── CountersModal.tsx     # React.FC({isOpen: boolean, onClose: () => void, setDraggedItem: (item: DragItem | null) => void, canInteract: boolean, anchorEl: HTMLElement | null, imageRefreshVersion?: number, onCounterMouseDown: (counter: any) => void, cursorStack: { type: string; count: number } | null})
 │   │   ├── DeckBuilderModal.tsx  # React.FC({isOpen: boolean, onClose: () => void, setViewingCard: (card: Card | null) => void})
 │   │   ├── EditCardModal.tsx     # (empty file)
-│   │   ├── SettingsModal.tsx     # React.FC({isOpen: boolean, onClose: () => void, onSave: (settings: any) => void})
+│   │   ├── SettingsModal.tsx     # React.FC({isOpen, onClose, onSave, connectionStatus, onReconnect}) - Server URL config, reconnect button, connection status indicator, Copy Game Link button (only active when connected)
 │   │   ├── RulesModal.tsx        # React.FC({isOpen: boolean, onClose: () => void})
 │   │   ├── CommandModal.tsx      # React.FC({isOpen: boolean, card: Card | null, playerColorMap: Map<number, PlayerColor>, onConfirm: (command: string) => void, onCancel: () => void})
 │   │   ├── CounterSelectionModal.tsx # React.FC({isOpen: boolean, data: any, onConfirm: (counterId: string) => void, onCancel: () => void})
@@ -105,7 +105,7 @@ Before commit **MANDATORY**:
 │   │   ├── LanguageContext.tsx   # export const LanguageProvider: React.FC<{ children: ReactNode }>, export const useLanguage: () => {language: LanguageCode; setLanguage: (lang: LanguageCode) => void; t: (key: keyof TranslationResource['ui']) => string; getCardTranslation: (cardId: string) => CardTranslation | undefined; getCounterTranslation: (type: string) => { name: string; description: string } | undefined; resources: TranslationResource; isRTL: boolean}
 │   │   └── DecksContext.tsx      # (empty file)
 │   ├── hooks/                    # Custom React hooks (4 files)
-│   │   ├── useGameState.ts       # export const useGameState: () => {gameState: GameState, localPlayerId: number | null, setLocalPlayerId: (id: number | null) => void, draggedItem: DragItem | null, setDraggedItem: (item: DragItem | null) => void, connectionStatus: string, gamesList: any[], latestHighlight: HighlightData | null, latestFloatingTexts: FloatingTextData[], latestNoTarget: {row: number, col: number} | null, createGame: (gameData: any) => void, joinGame: (joinData: any) => void, requestGamesList: () => void, exitGame: () => void, startReadyCheck: () => void, cancelReadyCheck: () => void, playerReady: () => void, assignTeams: (teams: any) => void, setGameMode: (mode: GameMode) => void, setGamePrivacy: (isPrivate: boolean) => void, setActiveGridSize: (size: GridSize) => void, setDummyPlayerCount: (count: number) => void, updatePlayerName: (name: string) => void, changePlayerColor: (color: PlayerColor) => void, updatePlayerScore: (score: number) => void, changePlayerDeck: (deckType: DeckType) => void, loadCustomDeck: (deck: CustomDeckFile) => void, drawCard: () => void, shufflePlayerDeck: () => void, playCard: (card: Card, coords: {row: number, col: number}) => void, moveCard: (fromCoords: {row: number, col: number}, toCoords: {row: number, col: number}) => void, returnCardToHand: (card: Card) => void, announceCard: (card: Card) => void, endTurn: () => void, playCounter: (counter: Card, targetCard: Card, targetCoords: {row: number, col: number}) => void, playToken: (token: Card, coords: {row: number, col: number}) => void, destroyCard: (card: Card, coords: {row: number, col: number}) => void, addCommand: (commandData: any) => void, cancelPendingCommand: () => void, executePendingCommand: () => void, handleQuickDrop: (item: DragItem, target: DropTarget) => void}
+│   │   ├── useGameState.ts       # export const useGameState: () => {gameState: GameState, localPlayerId: number | null, setLocalPlayerId: (id: number | null) => void, draggedItem: DragItem | null, setDraggedItem: (item: DragItem | null) => void, connectionStatus: ConnectionStatus ('Connecting' | 'Connected' | 'Disconnected'), gamesList: any[], latestHighlight: HighlightData | null, latestFloatingTexts: FloatingTextData[], latestNoTarget: {row: number, col: number} | null, createGame, joinGame, requestGamesList, exitGame, startReadyCheck, cancelReadyCheck, playerReady, assignTeams, setGameMode, setGamePrivacy, setActiveGridSize, setDummyPlayerCount, updatePlayerName, changePlayerColor, updatePlayerScore, changePlayerDeck, loadCustomDeck, drawCard, shufflePlayerDeck, playCard, moveCard, returnCardToHand, announceCard, endTurn, playCounter, playToken, destroyCard, addCommand, cancelPendingCommand, executePendingCommand, handleQuickDrop, forceReconnect}
 │   │   ├── useAppCommand.ts      # export const useAppCommand: ({gameState, localPlayerId, draggedItem, setDraggedItem, openContextMenu, playMode, setPlayMode, setCursorStack, playerColorMap}) => {playCard, moveCard, returnCardToHand, announceCard, endTurn, playCounter, playToken, destroyCard, addCommand, cancelPendingCommand, executePendingCommand, handleQuickDrop}
 │   │   ├── useAppAbilities.ts    # export const useAppAbilities: ({gameState, localPlayerId, setCursorStack, playerColorMap}) => {handleDeployAbility}
 │   │   └── useAppCounters.ts     # export const useAppCounters: ({gameState, localPlayerId}) => {handleStackInteraction}
@@ -116,11 +116,11 @@ Before commit **MANDATORY**:
 │   │   ├── autoAbilities.ts      # export const canActivateAbility: (card: Card, phaseIndex: number, activeTurnPlayerId: number | undefined) => boolean, export const getCardAbilityAction: (card: Card, gameState: GameState, trigger: 'deploy' | 'turn_start' | 'turn_end', sourceCoords?: {row: number, col: number}) => AbilityAction[]
 │   │   └── textFormatters.ts     # export const formatAbilityText: (ability: string) => React.ReactNode
 │   ├── locales/                  # Translation system
-│   │   ├── index.ts              # export const resources: Record<LanguageCode, TranslationResource>, export const LANGUAGE_NAMES: Record<LanguageCode, string>
+│   │   ├── index.ts              # export const resources: Record<LanguageCode, TranslationResource>, export const LANGUAGE_NAMES: Record<LanguageCode, string>, export const AVAILABLE_LANGUAGES (en, ru, sr), includes new translations: copyGameLink, copyGameLinkDesc, reconnect, inviteLinkDesc, copyInviteLink, copied
 │   │   ├── types.ts              # type LanguageCode, interface CardTranslation, interface CounterTranslation, interface TranslationResource
-│   │   └── ru.ts                 # const translations: TranslationResource
-│   ├── App.tsx                   # export default function App
-│   ├── index.tsx                 # ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><LanguageProvider><App /></LanguageProvider></React.StrictMode>)
+│   │   └── ru.ts, sr.ts          # Translation files with same structure as en
+│   ├── App.tsx                   # export default function App - includes useEffect for auto-joining games from invite links (checks sessionStorage for invite_game_id)
+│   ├── index.tsx                 # Entry point - parses URL params (game, s) for invite links, stores invite_game_id in sessionStorage, decodes and saves WebSocket URL to localStorage
 │   ├── types.ts                  # enum DeckType, enum GameMode, type SpecialItemType, type PlayerColor, type GridSize, interface CardStatus, interface CounterDefinition, interface Card, interface Player, interface Cell, type Board, type CardIdentifier, interface RevealRequest, interface HighlightData, interface FloatingTextData, interface GameState, interface DragItem, interface DropTarget, interface CustomDeckCard, interface CustomDeckFile, type ContextMenuItem, type ContextMenuParams, interface CursorStackState, interface CommandContext
 │   ├── constants.ts              # export const MAX_PLAYERS, DECK_THEMES, PLAYER_COLORS, FLOATING_TEXT_COLORS, PLAYER_COLOR_NAMES, TURN_PHASES, STATUS_ICONS, STATUS_DESCRIPTIONS, AVAILABLE_COUNTERS, COUNTERS, shuffleDeck, PLAYER_POSITIONS
 │   ├── contentDatabase.ts        # export const rawJsonData, export type CardDefinition, export const cardDatabase, export const tokenDatabase, export const countersDatabase, export const deckFiles, export const commandCardIds, export const decksData, export const getSelectableDecks, export function getCardDefinition, export function getCardDefinitionByName, export function getAllCards
@@ -215,6 +215,39 @@ Before commit **MANDATORY**:
 4. **server/handlers/gameManagement.ts** - `ws.send(JSON.stringify({ type: 'JOIN_SUCCESS', playerId, playerToken }))` (line 204-207)
 5. **server/handlers/gameManagement.ts** - `broadcastToGame(gameId, gameState)` (line 210)
 6. **client/hooks/useGameState.ts** - `if (data.type === 'JOIN_SUCCESS') { setLocalPlayerId(data.playerId) }` (line 206)
+
+### Invite Link System
+#### Invite Link Creation (Header.tsx → handleCopyLink)
+1. **client/components/Header.tsx** - `handleCopyLink()` creates invite link (line 317-344)
+2. Get baseUrl: `window.location.origin` (e.g., `http://localhost:8822/`)
+3. Get WebSocket URL from `localStorage.getItem('websocket_url')`
+4. Encode WebSocket URL: `btoa(encodeURIComponent(wsUrl))`
+5. Create invite link: `${baseUrl}?game=${gameId}&s=${encodedServerUrl}`
+
+#### Invite Link Processing (index.tsx)
+1. **client/index.tsx** - Parse URL parameters on app load (line 8-39)
+2. `game` parameter → `sessionStorage.setItem('invite_game_id', inviteGameId)`
+3. `s` parameter → decode and save to both `localStorage.setItem('websocket_url', decodedUrl)` and `localStorage.setItem('custom_ws_url', decodedUrl)`
+4. Clear URL parameters from browser address bar: `window.history.replaceState({}, '', window.location.pathname)`
+
+#### Auto-Join Flow (App.tsx)
+1. **client/App.tsx** - `useEffect` checks for invite game ID (line 1071-1081)
+2. When connected (`connectionStatus === 'Connected'`) and invite exists:
+   - `handleJoinGame(inviteGameId)` is called
+   - `sessionStorage.removeItem('invite_game_id')` clears the invite
+
+#### WebSocket URL Management
+- **custom_ws_url**: User-configured server URL (from Settings modal)
+- **websocket_url**: Active/verified server URL (saved by getWebSocketURL and onopen handler)
+- **client/hooks/useGameState.ts** - `getWebSocketURL()` saves validated URL to `websocket_url` (line 41)
+- **client/hooks/useGameState.ts** - `ws.current.onopen` saves active URL to `websocket_url` (line 370)
+
+### Copy Game Link (SettingsModal)
+1. **client/components/SettingsModal.tsx** - `handleCopyGameLink()` (line 95-121)
+2. Gets baseUrl: `window.location.origin`
+3. Gets active server URL: `localStorage.getItem('websocket_url')`
+4. Creates link: `${baseUrl}?s=${encodedServerUrl}` (no game ID, just server config)
+5. Button only active when `isConnected && !hasUnsavedChanges`
 
 ### Host Game Creation & Deck Sync
 1. **client/hooks/useGameState.ts** - Player 1 sends: `ws.current.send(JSON.stringify({ type: 'UPDATE_DECK_DATA', deckData: rawJsonData }))` (line 311)
