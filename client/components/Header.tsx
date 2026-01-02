@@ -557,7 +557,7 @@ const Header = memo<HeaderProps>(({
           </button>
           <button
             onClick={onOpenCountersModal}
-            className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-3 rounded text-sm ml-0.5"
+            className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-3 rounded text-sm ml-[5px]"
           >
             {t('counters')}
           </button>
