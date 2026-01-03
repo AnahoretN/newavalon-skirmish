@@ -382,7 +382,7 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
 
                 return (
                   <div
-                    key={`${card.id}-${index}`}
+                    key={`${player.id}-hand-${index}-${card.id}`}
                     className={`flex items-center bg-gray-900 border border-gray-700 rounded p-2 ${targetClass}`}
                     draggable={canPerformActions}
                     onDragStart={() => canPerformActions && setDraggedItem({
@@ -548,7 +548,17 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
           </div>
 
           {/* Row 2: Hand Cards - Grid 6 cols - Scrollable with ALWAYS VISIBLE SCROLLBAR */}
-          <DropZone onDrop={() => draggedItem && handleDrop(draggedItem, { target: 'hand', playerId: player.id })} className="grid grid-cols-6 gap-1 overflow-y-scroll custom-scrollbar flex-grow content-start min-h-[30px]">
+          <div
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              if (draggedItem) {
+                handleDrop(draggedItem, { target: 'hand', playerId: player.id })
+              }
+            }}
+            className="grid grid-cols-6 gap-1 overflow-y-scroll custom-scrollbar flex-grow content-start min-h-[30px]"
+          >
             {player.hand.map((card, index) => {
               const isTarget = validHandTargets?.some(t => t.playerId === player.id && t.cardIndex === index)
               const targetClass = isTarget ? 'ring-2 ring-cyan-400 shadow-[0_0_8px_#22d3ee] rounded-md z-10' : ''
@@ -565,7 +575,7 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
 
               return (
                 <div
-                  key={`${card.id}-${index}`}
+                  key={`${player.id}-hand-${index}-${card.id}`}
                   className={`aspect-square relative ${targetClass}`}
                   draggable={canPerformActions}
                   onDragStart={() => canPerformActions && setDraggedItem({ card, source: 'hand', playerId: player.id, cardIndex: index, isManual: true })}
@@ -577,7 +587,23 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
                   }}
                   onDoubleClick={() => onHandCardDoubleClick(player, card, index)}
                   onClick={() => onCardClick?.(player, card, index)}
-                  onDrop={() => draggedItem && handleDrop(draggedItem, { target: 'hand', playerId: player.id })}
+                  onDragOver={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    if (draggedItem) {
+                      // If dropping on same player's hand, insert at this index
+                      if (draggedItem.playerId === player.id && draggedItem.source === 'hand') {
+                        handleDrop(draggedItem, { target: 'hand', playerId: player.id, cardIndex: index })
+                      } else {
+                        // Different source or player, append to end
+                        handleDrop(draggedItem, { target: 'hand', playerId: player.id })
+                      }
+                    }
+                  }}
                   data-hand-card={`${player.id},${index}`}
                   data-interactive="true"
                 >
@@ -597,7 +623,7 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
                 </div>
               )
             })}
-          </DropZone>
+          </div>
           </div>
         </div>
       </div>

@@ -1934,7 +1934,26 @@ export const useGameState = () => {
         removeAllReadyStatuses(cardToMove)
         const player = newState.players.find(p => p.id === target.playerId)
         if (player) {
-          player.hand.push(cardToMove)
+          // Determine insert index: use target.cardIndex if provided, otherwise append to end
+          let insertIndex = target.cardIndex !== undefined ? target.cardIndex : player.hand.length
+
+          // Special case: reordering within the same hand
+          // The source card was already removed from hand earlier (line 1854-1858)
+          // We need to adjust insertIndex if we removed from before the insert position
+          if (item.source === 'hand' && item.playerId === target.playerId && item.cardIndex !== undefined) {
+            // If removing from before insert position, the indices shifted
+            if (item.cardIndex < insertIndex) {
+              insertIndex -= 1
+            }
+            // If dragging to same position, no change needed
+            if (item.cardIndex === insertIndex) {
+              return currentState
+            }
+          }
+
+          // Insert card at the calculated position
+          player.hand.splice(insertIndex, 0, cardToMove)
+
           // Automatic Shuffle if moving from Deck to Hand
           if (item.source === 'deck') {
             player.deck = shuffleDeck(player.deck)
