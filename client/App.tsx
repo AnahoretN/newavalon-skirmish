@@ -1079,15 +1079,30 @@ const App = memo(function App() {
   // Handle invite link - auto-join game as new player or spectator
   useEffect(() => {
     const inviteGameId = sessionStorage.getItem('invite_game_id')
-    if (inviteGameId && !gameState.gameId && connectionStatus === 'Connected') {
-      console.log('[App] Auto-joining game from invite link:', inviteGameId)
-      // Clear the stored invite ID so we don't try again
-      sessionStorage.removeItem('invite_game_id')
-      sessionStorage.removeItem('invite_auto_join')
-      // Generate a player name for the invite join
-      const playerName = `Player ${Math.floor(Math.random() * 1000)}`
-      // Join using joinAsInvite (handles new player or spectator)
-      joinAsInvite(inviteGameId, playerName)
+    const autoJoinFlag = sessionStorage.getItem('invite_auto_join')
+
+    // Only attempt invite join if:
+    // 1. We have an invite game ID
+    // 2. Connection is established
+    // 3. Either we're not in a game, OR the invite game is different from current game
+    // 4. We have the auto-join flag (prevents accidental joins when refreshing in an existing game)
+    if (inviteGameId && autoJoinFlag && connectionStatus === 'Connected') {
+      const shouldJoinAsInvite = !gameState.gameId || gameState.gameId !== inviteGameId
+
+      if (shouldJoinAsInvite) {
+        console.warn('[App] Auto-joining game from invite link:', inviteGameId)
+        // Clear the stored invite data so we don't try again
+        sessionStorage.removeItem('invite_game_id')
+        sessionStorage.removeItem('invite_auto_join')
+        // Generate a player name for the invite join
+        const playerName = `Player ${Math.floor(Math.random() * 1000)}`
+        // Join using joinAsInvite (handles new player or spectator)
+        joinAsInvite(inviteGameId, playerName)
+      } else {
+        // Already in this game, clear invite flags
+        sessionStorage.removeItem('invite_game_id')
+        sessionStorage.removeItem('invite_auto_join')
+      }
     }
   }, [connectionStatus, gameState.gameId, joinAsInvite])
 

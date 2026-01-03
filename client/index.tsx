@@ -13,7 +13,7 @@ const hashParams = new URLSearchParams(window.location.hash.slice(1))
 const inviteGameId = urlParams.get('game') || hashParams.get('game')
 const inviteServerUrl = urlParams.get('server') || hashParams.get('server')
 const encodedServerUrl = urlParams.get('s') || hashParams.get('s')
-const autoJoin = urlParams.get('autojoin') || hashParams.get('autojoin') // New parameter for auto-join
+// const autoJoin = urlParams.get('autojoin') || hashParams.get('autojoin') // Reserved for future auto-join functionality
 
 // Store invite data in sessionStorage for App to use
 if (inviteGameId) {

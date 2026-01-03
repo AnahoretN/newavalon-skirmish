@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.2.5t] - 2026-01-03
+
+### Fixed
+- **Tunnel Compatibility**: Fixed WebSocket connections dropping when using ngrok or cloudflared tunnels
+  - Removed CONNECTION_ESTABLISHED message that was sent immediately on connect
+  - Added explicit `app.ws('/', ...)` route before Vite middleware for proper tunnel handshake
+  - Server now waits for client to send first message before responding
+
+### Changed
+- Version now automatically sourced from `package.json` via virtual Vite module
+- Removed hardcoded `client/version.ts` file
+- Removed unused `autoJoin` variable from invite link parsing
+
+### Fixed
+- Fixed ESLint warnings (removed console.log statements, unused imports)
+- Fixed TypeScript type errors
+
+
 ## [0.2.5] - 2025-12-30
 
 ### Changed

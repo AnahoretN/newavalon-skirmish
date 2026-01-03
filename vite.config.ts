@@ -3,6 +3,11 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from 'tailwindcss'
 import autoprefixer from 'autoprefixer'
 import path from 'path'
+import { readFileSync } from 'fs'
+
+// Read version from package.json
+const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
+const APP_VERSION = pkg.version || '0.0.0'
 
 export default defineConfig(({ mode }) => {
   // Load env file based on `mode` in the current working directory.
@@ -12,7 +17,23 @@ export default defineConfig(({ mode }) => {
   const base = env.BASE_URL || '/'
 
   return {
-    plugins: [react()],
+    plugins: [
+      react(),
+      {
+        name: 'version-injection',
+        enforce: 'pre',
+        resolveId(id) {
+          if (id === 'virtual:version') {
+            return '\0virtual:version'
+          }
+        },
+        load(id) {
+          if (id === '\0virtual:version') {
+            return `export const APP_VERSION = '${APP_VERSION}'`
+          }
+        },
+      },
+    ],
     root: 'client',
     base,
     server: {

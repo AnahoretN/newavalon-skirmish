@@ -109,7 +109,7 @@ const RECONNECTION_DATA_KEY = 'reconnection_data'
  * This is needed after restoring from localStorage or receiving state from server
  */
 const syncCardImages = (card: any): any => {
-  if (!card || !rawJsonData) return card
+  if (!card || !rawJsonData) {return card}
   const { cardDatabase, tokenDatabase } = rawJsonData
 
   // Special handling for tokens
@@ -138,7 +138,7 @@ const syncCardImages = (card: any): any => {
  * Sync all card images in a game state with the current database
  */
 const syncGameStateImages = (gameState: GameState): GameState => {
-  if (!rawJsonData) return gameState
+  if (!rawJsonData) {return gameState}
 
   // Sync all cards in the board
   const syncedBoard = gameState.board?.map(row =>
@@ -201,7 +201,7 @@ const saveGameState = (gameState: GameState, localPlayerId: number | null, playe
 const loadGameState = (): { gameState: GameState; localPlayerId: number; playerToken?: string } | null => {
   try {
     const stored = localStorage.getItem(GAME_STATE_KEY)
-    if (!stored) return null
+    if (!stored) {return null}
     const data = JSON.parse(stored)
     // Check if state is not too old (24 hours max)
     const maxAge = 24 * 60 * 60 * 1000
@@ -390,7 +390,12 @@ export const useGameState = () => {
       if (customUrl && customUrl.trim() !== '') {
         localStorage.setItem('websocket_url', customUrl.trim())
       }
+
       const currentGameState = gameStateRef.current
+      logger.info('Current gameState on open:', currentGameState ? `gameId=${currentGameState.gameId}` : 'null')
+
+      // Only send JOIN_GAME if we have an active game
+      // Don't send GET_GAMES_LIST on connect - it causes issues with tunnel connections (ngrok/cloudflared)
       if (currentGameState && currentGameState.gameId && ws.current?.readyState === WebSocket.OPEN) {
         let playerToken = undefined
         try {
@@ -413,6 +418,7 @@ export const useGameState = () => {
         }))
         // Note: Deck data will be sent after JOIN_SUCCESS confirmation if player is host
       }
+      // If no active game, just wait - don't send any message (matches old working version)
     }
     ws.current.onmessage = (event) => {
       try {
@@ -626,6 +632,25 @@ export const useGameState = () => {
   useEffect(() => {
     isManualExitRef.current = false
 
+    // Check if there's an invite link in sessionStorage - if so, skip state restoration
+    // This ensures invite joins work correctly even if the browser has saved state from a previous game
+    const hasInviteLink = sessionStorage.getItem('invite_game_id')
+
+    if (hasInviteLink) {
+      logger.info('[inviteLinks] Invite link detected, skipping state restoration for fresh join')
+      connectWebSocket()
+      return () => {
+        isManualExitRef.current = true
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current)
+        }
+        if (ws.current) {
+          ws.current.onclose = null
+          ws.current.close()
+        }
+      }
+    }
+
     // Check navigation type to determine if we should restore state
     // PerformanceNavigationTiming.type values:
     // 0 = TYPE_NAVIGATE - normal navigation (restore state)
@@ -683,12 +708,12 @@ export const useGameState = () => {
         gameStateRef.current = synced
       }
     }
-  }, [rawJsonData]) // Re-run when rawJsonData changes
+  }, [])
 
   // Poll for rawJsonData to be loaded and sync images
   // This is needed because rawJsonData is loaded asynchronously in App.tsx
   useEffect(() => {
-    if (contentLoaded) return // Already loaded
+    if (contentLoaded) {return} // Already loaded
 
     const checkInterval = setInterval(() => {
       if (rawJsonData && gameStateRef.current && gameStateRef.current.gameId) {

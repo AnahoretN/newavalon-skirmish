@@ -146,7 +146,7 @@ const GameSettingsMenu = memo<{
 
   // Close menu when clicking outside
   useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen) {return}
 
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node) && !anchorEl?.contains(event.target as Node)) {
@@ -158,7 +158,7 @@ const GameSettingsMenu = memo<{
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [isOpen, onClose, anchorEl])
 
-  if (!isOpen || !anchorEl) return null
+  if (!isOpen || !anchorEl) {return null}
 
   const rect = anchorEl.getBoundingClientRect()
 
@@ -291,7 +291,7 @@ const InvitePlayerMenu = memo<{
 
   // Close menu when clicking outside
   useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen) {return}
 
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node) && !anchorEl?.contains(event.target as Node)) {
@@ -312,7 +312,7 @@ const InvitePlayerMenu = memo<{
   }, [isOpen])
 
   const handleCopyGameId = useCallback(() => {
-    if (!gameId) return
+    if (!gameId) {return}
 
     navigator.clipboard.writeText(gameId).then(() => {
       setGameIdCopySuccess(true)
@@ -323,7 +323,7 @@ const InvitePlayerMenu = memo<{
   }, [gameId])
 
   const handleCopyLink = useCallback(() => {
-    if (!gameId) return
+    if (!gameId) {return}
 
     // Generate context-aware invite link based on current game state
     const { url: inviteLink } = generateInviteLink(gameId, isGameStarted, isPrivate)
@@ -337,7 +337,7 @@ const InvitePlayerMenu = memo<{
     })
   }, [gameId, isGameStarted, isPrivate])
 
-  if (!isOpen || !anchorEl) return null
+  if (!isOpen || !anchorEl) {return null}
 
   const rect = anchorEl.getBoundingClientRect()
 

@@ -62,10 +62,19 @@ async function createDevServer() {
 
   setupRoutes(app);
 
+  // Setup WebSocket route BEFORE Vite middleware (important for tunnel compatibility)
+  // This matches the old working version's approach: app.ws('/', ...)
+  app.ws('/', () => {
+    // WebSocket connection will be handled by the wss 'connection' event
+    // The express-ws library routes this through the same wss instance
+    // Just log for debugging - actual handling is in setupWebSocket
+    logger.info('WebSocket connection received via app.ws route');
+  });
+
   // Use vite's connect instance as middleware (catch-all for SPA routing)
   app.use(vite.middlewares);
 
-  // Setup WebSocket handlers
+  // Setup WebSocket server reference for broadcasting
   setupWebSocket(wss);
 
   // Start server

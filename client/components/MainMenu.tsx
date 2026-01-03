@@ -6,7 +6,7 @@ import { RulesModal } from './RulesModal'
 import { CardDetailModal } from './CardDetailModal'
 import type { GameState, Card, Player } from '@/types'
 import { STATUS_DESCRIPTIONS } from '@/constants'
-import { APP_VERSION } from '@/version'
+import { APP_VERSION } from 'virtual:version'
 import type { ConnectionStatus } from '@/hooks/useGameState'
 
 interface MainMenuProps {

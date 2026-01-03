@@ -367,7 +367,8 @@ export function handleForceSync(ws, data) {
 
 /**
  * Handle JOIN_AS_INVITE message
- * Handles player joining via invite link - joins as new player or spectator
+ * Handles player joining via invite link - ALWAYS creates a new player slot or joins as spectator
+ * This is different from JOIN_GAME which allows taking over disconnected slots
  */
 export function handleJoinAsInvite(ws: any, data: any) {
   try {
@@ -389,56 +390,35 @@ export function handleJoinAsInvite(ws: any, data: any) {
     ws.gameId = gameId;
     associateClientWithGame(ws, gameId);
 
-    // Count active (non-dummy, non-disconnected) players
-    const activePlayers = gameState.players.filter(p => !p.isDummy && !p.isDisconnected && !p.isSpectator);
-    const playerCount = activePlayers.length;
+    // Count all players (including disconnected ones) to get total slots used
+    // Don't allow disconnected slots to be reused - invite link ALWAYS creates new players
+    const allPlayers = gameState.players.filter(p => !p.isDummy && !p.isSpectator);
+    const playerCount = allPlayers.length;
 
-    logger.info(`Game ${gameId} has ${playerCount} active players (max: ${MAX_PLAYERS})`);
+    logger.info(`Game ${gameId} has ${playerCount} total players (max: ${MAX_PLAYERS})`);
 
-    // If game has less than 4 active players, join as new player
+    // If game has less than 4 total players, create a new player slot
     if (playerCount < MAX_PLAYERS) {
-      // Check for disconnected slots to take over first
-      const playerToTakeOver = gameState.players.find(p => p.isDisconnected && !p.isSpectator);
-      if (playerToTakeOver) {
-        playerToTakeOver.isDisconnected = false;
-        playerToTakeOver.name = playerName;
-        playerToTakeOver.playerToken = generatePlayerToken();
-
-        // Cancel any game termination timer
-        cancelGameTermination(gameId, getAllGameLogs());
-
-        // Clear pending dummy conversion timer
-        const timerKey = `${gameId}-${playerToTakeOver.id}`;
-        if (playerDisconnectTimers.has(timerKey)) {
-          clearTimeout(playerDisconnectTimers.get(timerKey));
-          playerDisconnectTimers.delete(timerKey);
-        }
-
-        ws.playerId = playerToTakeOver.id;
-        ws.send(JSON.stringify({
-          type: 'JOIN_SUCCESS',
-          playerId: playerToTakeOver.id,
-          playerToken: playerToTakeOver.playerToken,
-          isSpectator: false
-        }));
-        logger.info(`Invite: Player took over slot ${playerToTakeOver.id} in game ${gameId}`);
-        broadcastToGame(gameId, gameState);
-        return;
-      }
-
-      // Find the next available player ID
+      // Find the next available player ID (skip all existing IDs, including disconnected players)
       const existingIds = new Set(gameState.players.filter(p => !p.isSpectator).map(p => p.id));
       let newPlayerId = 1;
       while (existingIds.has(newPlayerId)) {
         newPlayerId++;
       }
 
+      logger.info(`Invite: Creating new player with ID ${newPlayerId} (existing IDs: [${Array.from(existingIds).join(', ')}])`);
+
       // Create new player with full deck
       const newPlayer = createNewPlayer(newPlayerId);
       newPlayer.name = playerName;
 
-      gameState.players.push(newPlayer);
-      gameState.players.sort((a, b) => a.id - b.id);
+      // Add new player using updateGameState for proper persistence
+      const updatedPlayers = [...gameState.players, newPlayer];
+      updatedPlayers.sort((a, b) => a.id - b.id);
+
+      const updatedState = updateGameState(gameId, {
+        players: updatedPlayers
+      });
 
       ws.playerId = newPlayerId;
       ws.send(JSON.stringify({
@@ -448,7 +428,7 @@ export function handleJoinAsInvite(ws: any, data: any) {
         isSpectator: false
       }));
       logger.info(`Invite: New player ${newPlayerId} (${newPlayer.name}) joined game ${gameId}`);
-      broadcastToGame(gameId, gameState);
+      broadcastToGame(gameId, updatedState);
     } else {
       // Game is full (4 players), join as spectator
       const spectatorId = `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
@@ -458,11 +438,11 @@ export function handleJoinAsInvite(ws: any, data: any) {
         connectedAt: Date.now()
       };
 
-      // Initialize spectators array if needed
-      if (!gameState.spectators) {
-        gameState.spectators = [];
-      }
-      gameState.spectators.push(spectator);
+      // Initialize spectators array if needed and add new spectator
+      const currentSpectators = gameState.spectators || [];
+      const updatedState = updateGameState(gameId, {
+        spectators: [...currentSpectators, spectator]
+      });
 
       ws.playerId = null; // Spectators have no player ID
       ws.spectatorId = spectatorId;
@@ -473,8 +453,8 @@ export function handleJoinAsInvite(ws: any, data: any) {
         isSpectator: true,
         message: `Game is full. You joined as a spectator.`
       }));
-      logger.info(`Invite: ${playerName} joined game ${gameId} as spectator (${gameState.spectators.length} spectators)`);
-      broadcastToGame(gameId, gameState);
+      logger.info(`Invite: ${playerName} joined game ${gameId} as spectator (${updatedState.spectators?.length || 0} spectators)`);
+      broadcastToGame(gameId, updatedState);
     }
   } catch (error) {
     logger.error('Failed to join as invite:', error);

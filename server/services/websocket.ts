@@ -13,7 +13,6 @@ import {
   logGameAction,
   getClientGameMap,
   getPublicGames,
-  deleteGameState
 } from './gameState.js';
 import { generatePlayerToken } from '../utils/deckUtils.js';
 
@@ -94,12 +93,8 @@ export function setupWebSocket(wss) {
       logger.error('WebSocket error:', error);
       cleanupRateLimitData(ws);
     });
-
-    // Send initial connection confirmation
-    ws.send(JSON.stringify({
-      type: 'CONNECTION_ESTABLISHED',
-      timestamp: Date.now()
-    }));
+    // NOTE: Don't send any message on connect - wait for client to send first message
+    // This is important for tunnel compatibility (ngrok, cloudflared)
   });
 
   logger.info('WebSocket server initialized');
@@ -328,10 +323,14 @@ export function broadcastToGame(gameId, gameState, excludeClient = null) {
 export function sendToClient(client, message) {
   if (client && client.readyState === 1) {
     try {
-      client.send(JSON.stringify(message));
+      const payload = JSON.stringify(message);
+      logger.debug(`sendToClient: Sending message type ${message.type}, size: ${payload.length} bytes`);
+      client.send(payload);
     } catch (error) {
       logger.error('Error sending to client:', error);
     }
+  } else {
+    logger.warn(`sendToClient: Cannot send - client state is ${client?.readyState}, expected 1 (OPEN)`);
   }
 }
 
@@ -355,8 +354,11 @@ function sanitizeGameState(gameState) {
 
 // Get games list handler
 function handleGetGamesList(ws) {
+  logger.info('GET_GAMES_LIST: Fetching public games');
   const publicGames = getPublicGames();
+  logger.info(`GET_GAMES_LIST: Sending ${publicGames.length} games to client`);
   sendToClient(ws, { type: 'GAMES_LIST', games: publicGames });
+  logger.info('GET_GAMES_LIST: Response sent successfully');
 }
 
 // Sync game handler
