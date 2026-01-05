@@ -59,28 +59,37 @@ export async function fetchContentDatabase(): Promise<void> {
   try {
     let data: RawDecksJson
 
+    // Check if we're in a static build environment (GitHub Pages, etc.)
+    // If the base path is not '/', we're likely on GitHub Pages or similar static hosting
+    const isStaticBuild = window.location.pathname !== '/' && !window.location.hostname === 'localhost' && !window.location.hostname === '127.0.0.1'
+
     // Try to fetch from server API first (for local development with server)
     // If that fails (e.g., on GitHub Pages), use embedded JSON
-    try {
-      const response = await fetch('/api/content/database')
-      if (response.ok) {
-        const apiData = await response.json()
-        // Transform API response to match expected format
-        const cards: [string, CardDefinition][] = apiData.cards.map(([id, card]: [string, CardDefinition]) => [id, card])
-        const tokens: [string, CardDefinition][] = apiData.tokens.map(([id, token]: [string, CardDefinition]) => [id, token])
+    if (!isStaticBuild) {
+      try {
+        const response = await fetch('/api/content/database')
+        if (response.ok) {
+          const apiData = await response.json()
+          // Transform API response to match expected format
+          const cards: [string, CardDefinition][] = apiData.cards.map(([id, card]: [string, CardDefinition]) => [id, card])
+          const tokens: [string, CardDefinition][] = apiData.tokens.map(([id, token]: [string, CardDefinition]) => [id, token])
 
-        data = {
-          cardDatabase: Object.fromEntries(cards),
-          tokenDatabase: Object.fromEntries(tokens),
-          countersDatabase: Object.fromEntries(apiData.counters),
-          deckFiles: apiData.deckFiles
+          data = {
+            cardDatabase: Object.fromEntries(cards),
+            tokenDatabase: Object.fromEntries(tokens),
+            countersDatabase: Object.fromEntries(apiData.counters),
+            deckFiles: apiData.deckFiles
+          }
+        } else {
+          // Server responded but not OK, use embedded data
+          data = embeddedDatabase as RawDecksJson
         }
-      } else {
-        // Server responded but not OK, use embedded data
+      } catch {
+        // Fetch failed (likely on GitHub Pages), use embedded data
         data = embeddedDatabase as RawDecksJson
       }
-    } catch {
-      // Fetch failed (likely on GitHub Pages), use embedded data
+    } else {
+      // Static build - use embedded data directly
       data = embeddedDatabase as RawDecksJson
     }
 
