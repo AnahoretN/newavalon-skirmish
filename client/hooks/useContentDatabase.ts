@@ -1,8 +1,11 @@
 /**
- * @file Hook for managing content database fetching from server
+ * @file Hook for managing content database fetching from server or embedded JSON
+ * For GitHub Pages (static hosting), uses embedded content from content.ts
+ * For local development, can fetch from server API
  */
 
 import { useState, useEffect, useCallback } from 'react'
+import { fetchContentDatabase, cardDatabase, tokenDatabase, countersDatabase, deckFiles } from '../content'
 
 interface ContentDatabase {
   cards: Record<string, any>
@@ -61,7 +64,21 @@ export function useContentDatabase() {
     }
   }, [])
 
-  // Fetch content from server
+  // Load from embedded content database (for GitHub Pages)
+  const loadFromEmbedded = useCallback((): ContentDatabase => {
+    // Convert Maps to objects for serialization
+    const cardsObj = Object.fromEntries(cardDatabase)
+    const tokensObj = Object.fromEntries(tokenDatabase)
+
+    return {
+      cards: cardsObj,
+      tokens: tokensObj,
+      counters: countersDatabase,
+      deckFiles: deckFiles
+    }
+  }, [])
+
+  // Fetch content from server or use embedded
   const fetchContent = useCallback(async (forceRefresh = false) => {
     try {
       // Try cache first (unless force refresh)
@@ -78,14 +95,26 @@ export function useContentDatabase() {
       setIsLoading(true)
       setError(null)
 
-      const response = await fetch('/api/content/database')
-      if (!response.ok) {
-        throw new Error(`Failed to fetch content: ${response.status}`)
+      // Try to fetch from server API first (for local development)
+      try {
+        const response = await fetch('/api/content/database')
+        if (response.ok) {
+          const data: ContentDatabase = await response.json()
+          setContent(data)
+          saveToCache(data)
+          setIsLoading(false)
+          return
+        }
+      } catch {
+        // Server fetch failed - this is expected on GitHub Pages
+        console.log('Server API unavailable, using embedded content database')
       }
 
-      const data: ContentDatabase = await response.json()
-      setContent(data)
-      saveToCache(data)
+      // Use embedded content database as fallback
+      await fetchContentDatabase()
+      const embeddedData = loadFromEmbedded()
+      setContent(embeddedData)
+      saveToCache(embeddedData)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load content'
       setError(errorMessage)
@@ -93,7 +122,7 @@ export function useContentDatabase() {
     } finally {
       setIsLoading(false)
     }
-  }, [loadFromCache, saveToCache])
+  }, [loadFromCache, saveToCache, loadFromEmbedded])
 
   // Initialize content on mount
   useEffect(() => {
