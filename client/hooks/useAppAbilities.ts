@@ -1005,6 +1005,10 @@ export const useAppAbilities = ({
       }
 
       if (mode === 'SELECT_TARGET' && payload.actionType === 'DESTROY') {
+        // handOnly actions (like IP Dept Agent Commit) should NOT work on board cards
+        if (payload.handOnly) {
+          return
+        }
         if (payload.filter && !payload.filter(card, boardCoords.row, boardCoords.col)) {
           return
         }
