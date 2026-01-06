@@ -353,4 +353,5 @@ export type AbilityAction = {
     chainedAction?: AbilityAction;
     readyStatusToRemove?: string; // The ready status to remove when this action is executed/cancelled/has no targets
     allowHandTargets?: boolean; // If true, allows targeting cards in player's hand
+    handOnly?: boolean; // If true, ONLY target cards in hand, not on board (e.g., IP Dept Agent Commit)
 };

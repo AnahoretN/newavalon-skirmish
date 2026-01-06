@@ -110,7 +110,7 @@ const CARD_ABILITIES: CardAbilityDefinition[] = [
       payload: {
         actionType: 'DESTROY',
         filter: (target: Card) => hasStatus(target, 'Revealed', _ownerId),
-        allowHandTargets: true, // Allow targeting cards in hand
+        handOnly: true, // Only target cards in hand, not on board
       },
     })
   },

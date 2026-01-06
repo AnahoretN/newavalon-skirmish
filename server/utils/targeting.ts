@@ -185,10 +185,11 @@ export const calculateValidTargets = (
   // 1. Generic TARGET selection
   if ((mode === 'SELECT_TARGET' || mode === 'CENSOR_SWAP' || mode === 'ZEALOUS_WEAKEN' || mode === 'CENTURION_BUFF' || mode === 'SELECT_UNIT_FOR_MOVE') && payload.filter && typeof payload.filter === 'function') {
 
-    // Strict Hand-Only actions check
+    // Strict Hand-Only actions check - return empty for board targets
     if (payload.actionType === 'SELECT_HAND_FOR_DISCARD_THEN_SPAWN' ||
              payload.actionType === 'LUCIUS_SETUP' ||
-             payload.actionType === 'SELECT_HAND_FOR_DEPLOY') {
+             payload.actionType === 'SELECT_HAND_FOR_DEPLOY' ||
+             payload.handOnly) {
       return []
     }
 
@@ -577,23 +578,29 @@ export const checkActionHasTargets = (action: AbilityAction, currentGameState: G
     return false
   }
 
-  // 1. Check Board Targets
-  const boardTargets = calculateValidTargets(action, currentGameState, playerId, commandContext)
-  if (boardTargets.length > 0) {
-    return true
-  }
-
-  // 2. Check Hand Targets (For 'DESTROY' actions targeting Revealed cards, or allowHandTargets)
+  // 1. Check Hand Targets first (for handOnly actions like IP Dept Agent)
   if (action.mode === 'SELECT_TARGET' && action.payload?.filter) {
-    // Check if hand targets are allowed
-    if (action.payload.allowHandTargets || action.payload.actionType === 'DESTROY') {
+    if (action.payload.handOnly || action.payload.allowHandTargets || action.payload.actionType === 'DESTROY') {
       // Iterate all players hands
       for (const p of currentGameState.players) {
         if (p.hand.some((card) => action.payload.filter!(card))) {
-          return true
+          // For handOnly actions, this is sufficient - don't check board
+          if (action.payload.handOnly) {
+            return true
+          }
         }
       }
     }
+    // For handOnly actions, we've already checked and should not continue to board
+    if (action.payload.handOnly) {
+      return false
+    }
+  }
+
+  // 2. Check Board Targets
+  const boardTargets = calculateValidTargets(action, currentGameState, playerId, commandContext)
+  if (boardTargets.length > 0) {
+    return true
   }
 
   // 3. Check modes with filters that only work on board (CENSOR_SWAP, etc.)
