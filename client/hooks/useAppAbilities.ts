@@ -319,6 +319,7 @@ export const useAppAbilities = ({
           count: count,
           isDragging: false,
           sourceCoords: sourceCoords,
+          sourceCard: action.sourceCard, // Important for determining actorId
           excludeOwnerId: action.excludeOwnerId,
           onlyOpponents: action.onlyOpponents,
           onlyFaceDown: action.onlyFaceDown,
@@ -330,8 +331,10 @@ export const useAppAbilities = ({
           mustBeInLineWithSource: action.mustBeInLineWithSource,
           placeAllAtOnce: action.placeAllAtOnce,
           chainedAction: action.chainedAction,
-          targetOwnerId: action.targetOwnerId,
+          // Only set targetOwnerId if explicitly specified in action (not for Censor which targets any card with own exploit)
+          ...(action.targetOwnerId !== undefined && { targetOwnerId: action.targetOwnerId }),
           recordContext: action.recordContext, // New prop
+          replaceStatus: action.replaceStatus, // New prop for status replacement (e.g., Censor)
         })
       } else {
         // If dynamic count resulted in 0, we treat it as "No Targets/No Action"
@@ -429,7 +432,11 @@ export const useAppAbilities = ({
           count: 1,
           isDragging: false,
           sourceCoords: sourceCoords,
+          sourceCard: action.sourceCard,
+          targetOwnerId: action.sourceCard?.ownerId,
           mustBeInLineWithSource: true, // Updated: Target must be in line with Princeps
+          requiredTargetStatus: 'Threat',
+          requireStatusFromSourceOwner: true, // Only own threats
           isDeployAbility: action.isDeployAbility,
         })
         return
@@ -458,6 +465,8 @@ export const useAppAbilities = ({
             count: 1,
             isDragging: false,
             sourceCoords: sourceCoords,
+            sourceCard: action.sourceCard,
+            targetOwnerId: actorId,
             requiredTargetStatus: 'Threat',
             requireStatusFromSourceOwner: true, // Pass to cursor state
             isDeployAbility: action.isDeployAbility,
@@ -1187,7 +1196,7 @@ export const useAppAbilities = ({
         if (payload.filter && !payload.filter(card, boardCoords.row, boardCoords.col)) {
           return
         }
-        setCursorStack({ type: 'Revealed', count: 1, isDragging: false, sourceCoords: sourceCoords, targetOwnerId: card.ownerId, onlyFaceDown: true, onlyOpponents: true, isDeployAbility: isDeployAbility })
+        setCursorStack({ type: 'Revealed', count: 1, isDragging: false, sourceCoords: sourceCoords, sourceCard: sourceCard, targetOwnerId: card.ownerId, onlyFaceDown: true, onlyOpponents: true, isDeployAbility: isDeployAbility })
         setTimeout(() => setAbilityMode(null), 100)
         return
       }

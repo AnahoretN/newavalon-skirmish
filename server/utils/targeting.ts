@@ -93,6 +93,11 @@ export const validateTarget = (
     // 6.1 Check if specific status was added by source owner (Actor)
     if (constraints.requireStatusFromSourceOwner && userPlayerId !== null) {
       const hasStatusFromActor = card.statuses?.some(s => s.type === constraints.requiredTargetStatus && s.addedByPlayerId === userPlayerId)
+      // Debug: log status check
+      if (card.statuses && card.statuses.some(s => s.type === constraints.requiredTargetStatus)) {
+        const matchingStatuses = card.statuses.filter(s => s.type === constraints.requiredTargetStatus)
+        console.log(`[Censor Debug] Card: ${card.name}, requiredStatus: ${constraints.requiredTargetStatus}, userPlayerId: ${userPlayerId}, matchingStatuses:`, matchingStatuses.map(s => ({ type: s.type, addedBy: s.addedByPlayerId })), `hasFromActor: ${hasStatusFromActor}`)
+      }
       if (!hasStatusFromActor) {
         return false
       }

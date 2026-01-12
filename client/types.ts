@@ -226,6 +226,7 @@ export interface DragItem {
   boardCoords?: { row: number; col: number }; // Original coordinates if dragged from the board.
   cardIndex?: number; // Original index if dragged from an array (hand, discard, deck).
   statusType?: string; // For counters: the type of status (e.g., 'Aim', 'Power+')
+  replaceStatusType?: string; // For counters: the type of status to replace (e.g., 'Exploit' -> 'Stun' for Censor)
   count?: number; // For counters: how many are being dragged/applied
   bypassOwnershipCheck?: boolean; // If true, allows moving cards owned by others (e.g. Destroy effects)
   isManual?: boolean; // True if the drag was initiated manually by the user (vs an ability effect)
@@ -293,6 +294,7 @@ export interface CursorStackState {
     count: number;
     isDragging: boolean;
     sourceCoords?: {row: number, col: number}; // Origin for ability tracking
+    sourceCard?: Card; // Source card that created this stack (important for actorId validation)
     targetOwnerId?: number; // Optional restriction for 'Revealed' token usage (Recon Drone) - Inclusive
     excludeOwnerId?: number; // Optional restriction - Exclusive (e.g. Vigilant Spotter: Don't reveal self)
     onlyOpponents?: boolean; // Optional restriction - Exclusive (Don't reveal self OR teammates)
@@ -306,6 +308,7 @@ export interface CursorStackState {
     placeAllAtOnce?: boolean; // Optional: if true, placing the stack puts ALL counters on one target instead of one by one
     chainedAction?: AbilityAction; // Optional: Action to enter immediately after the stack is depleted
     recordContext?: boolean; // Optional: If true, saves the target to CommandContext
+    replaceStatus?: boolean; // If true, replace the requiredTargetStatus with type (e.g., Censor: Exploit -> Stun)
 }
 
 /**
@@ -354,4 +357,5 @@ export type AbilityAction = {
     readyStatusToRemove?: string; // The ready status to remove when this action is executed/cancelled/has no targets
     allowHandTargets?: boolean; // If true, allows targeting cards in player's hand
     handOnly?: boolean; // If true, ONLY target cards in hand, not on board (e.g., IP Dept Agent Commit)
+    replaceStatus?: boolean; // If true, replace the requiredTargetStatus with tokenType (e.g., Censor: Exploit -> Stun)
 };

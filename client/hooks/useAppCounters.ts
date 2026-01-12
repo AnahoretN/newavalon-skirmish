@@ -129,6 +129,7 @@ export const useAppCounters = ({
               card: { id: 'stack', deck: 'counter', name: '', imageUrl: '', fallbackImage: '', power: 0, ability: '', types: [] },
               source: 'counter_panel',
               statusType: cursorStack.type,
+              replaceStatusType: cursorStack.replaceStatus ? cursorStack.requiredTargetStatus : undefined, // For status replacement
               count: 1,
             }, { target: 'hand', playerId, cardIndex, boardCoords: undefined })
             if (cursorStack.sourceCoords && cursorStack.sourceCoords.row >= 0) {
@@ -235,6 +236,7 @@ export const useAppCounters = ({
               card: { id: 'stack', deck: 'counter', name: '', imageUrl: '', fallbackImage: '', power: 0, ability: '', types: [] },
               source: 'counter_panel',
               statusType: cursorStack.type,
+              replaceStatusType: cursorStack.replaceStatus ? cursorStack.requiredTargetStatus : undefined, // For Censor: Exploit -> Stun
               count: amountToDrop,
             }, { target: 'board', boardCoords: { row, col } })
 

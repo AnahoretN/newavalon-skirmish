@@ -1866,14 +1866,33 @@ export const useGameState = () => {
             if (!targetCard.statuses) {
               targetCard.statuses = []
             }
-            for (let i = 0; i < count; i++) {
-              if (['Support', 'Threat', 'Revealed'].includes(item.statusType)) {
-                const exists = targetCard.statuses.some(s => s.type === item.statusType && s.addedByPlayerId === effectiveActorId)
-                if (!exists) {
+
+            // Handle status replacement (e.g., Censor: Exploit -> Stun)
+            if (item.replaceStatusType && item.statusType) {
+              for (let i = 0; i < count; i++) {
+                // Find the status to replace (owned by effectiveActorId)
+                const replaceIndex = targetCard.statuses.findIndex(
+                  s => s.type === item.replaceStatusType && s.addedByPlayerId === effectiveActorId
+                )
+                if (replaceIndex !== -1) {
+                  // Replace with new status
+                  targetCard.statuses[replaceIndex] = { type: item.statusType, addedByPlayerId: effectiveActorId }
+                } else {
+                  // If no status to replace found, just add the new status
                   targetCard.statuses.push({ type: item.statusType, addedByPlayerId: effectiveActorId })
                 }
-              } else {
-                targetCard.statuses.push({ type: item.statusType, addedByPlayerId: effectiveActorId })
+              }
+            } else {
+              // Normal status addition
+              for (let i = 0; i < count; i++) {
+                if (['Support', 'Threat', 'Revealed'].includes(item.statusType)) {
+                  const exists = targetCard.statuses.some(s => s.type === item.statusType && s.addedByPlayerId === effectiveActorId)
+                  if (!exists) {
+                    targetCard.statuses.push({ type: item.statusType, addedByPlayerId: effectiveActorId })
+                  }
+                } else {
+                  targetCard.statuses.push({ type: item.statusType, addedByPlayerId: effectiveActorId })
+                }
               }
             }
           }

@@ -415,6 +415,7 @@ const CARD_ABILITIES: CardAbilityDefinition[] = [
       requireStatusFromSourceOwner: true,
       sourceCoords: coords,
       sourceCard: card,
+      replaceStatus: true, // Replace Exploit with Stun instead of adding Stun on top
     })
   },
 
