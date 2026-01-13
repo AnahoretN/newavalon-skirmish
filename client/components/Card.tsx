@@ -269,9 +269,12 @@ const CardCore: React.FC<CardCoreProps & CardInteractionProps> = memo(({
   const shouldHighlight = !disableActiveHighlights && !highlightDismissed && hasReadyAbility && !isExecutingAbility
 
   const handleCardClick = useCallback((e: React.MouseEvent) => {
-    // Stop propagation to prevent double-triggering from parent GameBoard cell
-    e.stopPropagation()
     console.log('[Card] handleCardClick - card:', card.name, 'boardCoords:', boardCoords, 'shouldHighlight:', shouldHighlight, 'onCardClick:', !!onCardClick)
+    // Stop propagation to prevent double-triggering from parent GameBoard cell
+    // Only stop if we have a handler or highlight, otherwise let parent handle the click (e.g., DeckViewModal)
+    if (onCardClick || shouldHighlight) {
+      e.stopPropagation()
+    }
     // If card has a ready ability and user clicks it, dismiss highlight and trigger ability
     if (shouldHighlight && localPlayerId === card.ownerId) {
       setHighlightDismissed(true)

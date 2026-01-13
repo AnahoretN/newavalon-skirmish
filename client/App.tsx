@@ -33,7 +33,6 @@ import type {
   CommandContext,
   CounterSelectionData,
   AbilityAction,
-  GameState,
 } from './types'
 import { GameMode, DeckType } from './types'
 import { STATUS_ICONS, STATUS_DESCRIPTIONS } from './constants'
@@ -189,11 +188,23 @@ const App = memo(function App() {
   const [highlight, setHighlight] = useState<HighlightData | null>(null)
   const [activeFloatingTexts, setActiveFloatingTexts] = useState<FloatingTextData[]>([])
 
+  // Track when we last received highlights from server (to prevent clearing them prematurely)
+  const lastExternalHighlightsTimeRef = useRef<number>(0)
+  const isLocalHighlightsOwnerRef = useRef<boolean>(false)
+
   // Listen for syncHighlights events from WebSocket
   useEffect(() => {
     const handleSyncHighlights = (e: Event) => {
       const customEvent = e as CustomEvent<HighlightData[]>
-      setLocalHighlights(customEvent.detail || [])
+      const highlights = customEvent.detail || []
+      setLocalHighlights(highlights)
+
+      // Mark that we received highlights from another player
+      // and update the timestamp to prevent premature clearing
+      if (highlights.length > 0) {
+        lastExternalHighlightsTimeRef.current = Date.now()
+        isLocalHighlightsOwnerRef.current = false
+      }
     }
     window.addEventListener('syncHighlights', handleSyncHighlights as EventListener)
     return () => window.removeEventListener('syncHighlights', handleSyncHighlights as EventListener)
@@ -218,6 +229,15 @@ const App = memo(function App() {
     }
   }, [isAutoAbilitiesEnabled])
 
+  // Reset highlight refs when exiting a game or when gameId changes
+  useEffect(() => {
+    if (!gameState.gameId) {
+      sentHighlightsHash.current = ''
+      lastExternalHighlightsTimeRef.current = 0
+      isLocalHighlightsOwnerRef.current = false
+    }
+  }, [gameState.gameId])
+
   // Auto-draw is now stored per-player in gameState.players
   const isAutoDrawEnabled = useMemo(() => {
     if (!localPlayerId) {
@@ -226,6 +246,9 @@ const App = memo(function App() {
     const localPlayer = gameState.players.find(p => p.id === localPlayerId)
     return localPlayer?.autoDrawEnabled ?? true // Default to true if not set
   }, [gameState.players, localPlayerId])
+
+  // Memoize board size to avoid unnecessary effect re-renders
+  const boardSize = useMemo(() => gameState.board.length, [gameState.board.length])
 
   // Save auto-draw setting to localStorage when it changes
   useEffect(() => {
@@ -556,6 +579,8 @@ const App = memo(function App() {
       if (topDeckViewState.isLocked && topDeckViewState.sourceCard) {
         if (topDeckViewState.sourceCard.ownerId !== undefined) {
           drawCard(topDeckViewState.sourceCard.ownerId)
+          // Secret Informant: shuffle deck after drawing
+          shufflePlayerDeck(topDeckViewState.sourceCard.ownerId)
         }
         if (topDeckViewState.sourceCoords) {
           markAbilityUsed(topDeckViewState.sourceCoords, topDeckViewState.isDeployAbility)
@@ -563,7 +588,7 @@ const App = memo(function App() {
       }
     }
     setTopDeckViewState(null)
-  }, [topDeckViewState, drawCard, markAbilityUsed])
+  }, [topDeckViewState, drawCard, shufflePlayerDeck, markAbilityUsed])
 
   const topDeckPlayer = useMemo(() => {
     if (!topDeckViewState) {
@@ -748,6 +773,8 @@ const App = memo(function App() {
         ...(cursorStack.requireStatusFromSourceOwner !== undefined && { requireStatusFromSourceOwner: cursorStack.requireStatusFromSourceOwner }),
         ...(cursorStack.mustBeAdjacentToSource && { mustBeAdjacentToSource: cursorStack.mustBeAdjacentToSource }),
         ...(cursorStack.mustBeInLineWithSource && { mustBeInLineWithSource: cursorStack.mustBeInLineWithSource }),
+        ...(cursorStack.maxDistanceFromSource !== undefined && { maxDistanceFromSource: cursorStack.maxDistanceFromSource }),
+        ...(cursorStack.maxOrthogonalDistance !== undefined && { maxOrthogonalDistance: cursorStack.maxOrthogonalDistance }),
         ...(cursorStack.sourceCoords && { sourceCoords: cursorStack.sourceCoords }),
       }
     }
@@ -758,7 +785,7 @@ const App = memo(function App() {
       actorId = effectiveAction.sourceCard.ownerId
     } else if (effectiveAction?.sourceCoords &&
                  effectiveAction.sourceCoords.row >= 0 &&
-                 effectiveAction.sourceCoords.row < gameState.board.length &&
+                 effectiveAction.sourceCoords.row < boardSize &&
                  effectiveAction.sourceCoords.col >= 0 &&
                  effectiveAction.sourceCoords.col < gameState.board[effectiveAction.sourceCoords.row].length) {
       const sourceCell = gameState.board[effectiveAction.sourceCoords.row][effectiveAction.sourceCoords.col]
@@ -826,7 +853,7 @@ const App = memo(function App() {
       }
     }
     if (abilityMode && (abilityMode.mode === 'SCORE_LAST_PLAYED_LINE' || abilityMode.mode === 'SELECT_LINE_END' || abilityMode.mode === 'INTEGRATOR_LINE_SELECT' || abilityMode.mode === 'ZIUS_LINE_SELECT')) {
-      const gridSize = gameState.board.length
+      const gridSize = boardSize
       if (abilityMode.sourceCoords) {
         // Highlight horizontal line (same row)
         for (let c = 0; c < gridSize; c++) {
@@ -859,13 +886,25 @@ const App = memo(function App() {
 
     // If we don't have abilityMode OR cursorStack (mode ended)
     if (!abilityMode && !cursorStack) {
-      // If we previously sent highlights, clear them and broadcast empty array
-      if (sentHighlightsHash.current !== '' || localHighlights.length > 0) {
-        console.log('[Highlights] Mode ended, clearing highlights and broadcasting empty array')
+      // Only clear and broadcast if WE are the owner of these highlights (not received from another player)
+      if (isLocalHighlightsOwnerRef.current && (sentHighlightsHash.current !== '' || localHighlights.length > 0)) {
+        console.log('[Highlights] Mode ended (we are owner), clearing highlights and broadcasting empty array')
         sentHighlightsHash.current = ''
         setLocalHighlights([])
+        isLocalHighlightsOwnerRef.current = false
         // Broadcast empty highlights to clear them for all players
         syncHighlights([])
+      } else if (!isLocalHighlightsOwnerRef.current && localHighlights.length > 0) {
+        // We received highlights from another player, keep them but update hash to match
+        // Use a special hash format for external highlights
+        const now = Date.now()
+        sentHighlightsHash.current = `external:${lastExternalHighlightsTimeRef.current}`
+        // Clear highlights if they're too old (> 5 seconds) to prevent stale highlights
+        if (now - lastExternalHighlightsTimeRef.current > 5000) {
+          console.log('[Highlights] External highlights expired, clearing')
+          setLocalHighlights([])
+          sentHighlightsHash.current = ''
+        }
       }
       return
     }
@@ -877,12 +916,25 @@ const App = memo(function App() {
     const targetsHash = validTargets.map(t => `${t.row},${t.col}`).sort().join('|')
     const currentHash = `${mode}:${sourceCoordsStr}:${targetsHash}`
 
-    console.log('[Highlights] currentHash:', currentHash, 'sentHash:', sentHighlightsHash.current)
+    console.log('[Highlights] currentHash:', currentHash, 'sentHash:', sentHighlightsHash.current, 'localHighlights:', localHighlights.length)
 
-    // Skip if same state (hash hasn't changed)
+    // Skip if same state (hash hasn't changed) AND local highlights are already set
+    // This prevents re-broadcasting but allows re-setting local highlights if they were lost (e.g., after HMR/reconnect)
     if (currentHash === sentHighlightsHash.current) {
-      console.log('[Highlights] Same state, skipping')
-      return
+      // If hash matches but local highlights are empty/desynced, we still need to update them
+      // Expected count: for line modes it's gridSize*2, for target modes it's validTargets.length
+      const expectedCount = (abilityMode?.mode === 'SCORE_LAST_PLAYED_LINE' ||
+        abilityMode?.mode === 'SELECT_LINE_END' ||
+        abilityMode?.mode === 'INTEGRATOR_LINE_SELECT' ||
+        abilityMode?.mode === 'ZIUS_LINE_SELECT')
+        ? boardSize * 2
+        : validTargets.length
+
+      if (localHighlights.length === expectedCount && localHighlights.length > 0) {
+        console.log('[Highlights] Same state, skipping')
+        return
+      }
+      console.log('[Highlights] Same hash but local highlights desynced, updating')
     }
 
     const activePlayerId = gameState.activePlayerId
@@ -901,7 +953,7 @@ const App = memo(function App() {
         abilityMode.mode === 'SELECT_LINE_END' ||
         abilityMode.mode === 'INTEGRATOR_LINE_SELECT' ||
         abilityMode.mode === 'ZIUS_LINE_SELECT')) {
-      const gridSize = gameState.board.length
+      const gridSize = boardSize
 
       if (abilityMode.sourceCoords) {
         // Send horizontal line highlights
@@ -948,12 +1000,13 @@ const App = memo(function App() {
     // Update local highlights and broadcast via WebSocket
     console.log('[Highlights] Setting local highlights:', newHighlights.length)
     setLocalHighlights(newHighlights)
+    isLocalHighlightsOwnerRef.current = true  // Mark that we own these highlights
 
     // Broadcast highlights to other players via WebSocket (does not affect local state)
     syncHighlights(newHighlights)
 
     sentHighlightsHash.current = currentHash
-  }, [abilityMode, abilityMode?.mode, abilityMode?.sourceCoords, cursorStack, cursorStack?.type, cursorStack?.sourceCoords, gameState.board, gameState.activePlayerId, validTargets, syncHighlights])
+  }, [abilityMode, abilityMode?.mode, abilityMode?.sourceCoords, cursorStack, cursorStack?.type, cursorStack?.sourceCoords, gameState.activePlayerId, validTargets, syncHighlights, localHighlights, boardSize])
 
   useEffect(() => {
     if (latestHighlight) {
@@ -997,8 +1050,8 @@ const App = memo(function App() {
         let lastPlayedCoords = null
 
         // Find the card with LastPlayed status owned by ACTIVE PLAYER
-        for (let r = 0; r < gameState.board.length; r++) {
-          for (let c = 0; c < gameState.board.length; c++) {
+        for (let r = 0; r < boardSize; r++) {
+          for (let c = 0; c < boardSize; c++) {
             const cell = gameState.board[r]?.[c]
             const card = cell?.card
             if (card?.statuses?.some(s => s.type === 'LastPlayed' && s.addedByPlayerId === activePlayerId)) {
@@ -1044,7 +1097,7 @@ const App = memo(function App() {
         // Add bounds/null checks before accessing the board
         if (
           typeof row === 'number' && typeof col === 'number' &&
-          row >= 0 && row < gameState.board.length &&
+          row >= 0 && row < boardSize &&
           gameState.board[row] &&
           col >= 0 && col < gameState.board[row].length &&
           gameState.board[row][col]
