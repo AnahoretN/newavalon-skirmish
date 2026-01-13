@@ -647,6 +647,7 @@ export const useAppAbilities = ({
             sourceCoords: commandContext.lastMovedCardCoords, // Use target card coords as anchor point
             isDeployAbility: action.isDeployAbility,
             payload: action.payload,
+            chainedAction: action.chainedAction, // Pass chainedAction (Exploit placement after scoring)
           })
         } else {
           // Fallback: use Zius's own coords if context not available
@@ -657,6 +658,7 @@ export const useAppAbilities = ({
             sourceCoords: sourceCoords,
             isDeployAbility: action.isDeployAbility,
             payload: action.payload,
+            chainedAction: action.chainedAction,
           })
         }
       } else if (action.mode === 'SELECT_DECK') {
@@ -664,6 +666,16 @@ export const useAppAbilities = ({
         setAbilityMode({
           type: 'ENTER_MODE',
           mode: 'SELECT_DECK',
+          sourceCard: action.sourceCard,
+          sourceCoords: sourceCoords,
+          isDeployAbility: action.isDeployAbility,
+          payload: action.payload,
+        })
+      } else if (action.mode === 'ZIUS_EXPLOIT_AND_SCORE') {
+        // Zius Setup: Enter mode to place Exploit, then immediately switch to line selection
+        setAbilityMode({
+          type: 'ENTER_MODE',
+          mode: 'ZIUS_EXPLOIT_AND_SCORE',
           sourceCard: action.sourceCard,
           sourceCoords: sourceCoords,
           isDeployAbility: action.isDeployAbility,
