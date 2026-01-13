@@ -13,6 +13,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ABR Gawain Shield**: Fixed duplicate Shield status by adding Shield to unique statuses list
 - **Reckless Provocateur Deploy**: Fixed swap positions ability - now correctly swaps with adjacent cards
 - **Card Click Event Bubbling**: Fixed double-triggering by adding stopPropagation to Card component click handler
+- **Auto-Draw System**: Completely refactored to prevent duplicate card draws
+  - Auto-draw now only triggers when ENTERING Setup phase from a different phase (Scoring/Main/Commit)
+  - No longer draws on game start when beginning in Setup phase
+  - No longer draws on page refresh when already in Setup phase
+  - Removed duplicate server-side auto-draw from `handleToggleActivePlayer`
+  - Starting hand draw changed: all players now draw 6 cards (first player no longer gets 7)
+  - First player's extra card now comes from client-side auto-draw on first turn transition
+
+### Added
+- **4-Phase Tracker**: Added visual phase tracker showing all 4 phases (Setup/Main/Commit/Scoring)
+- **Player-Colored Ready Effects**: Ready ability highlights now use each player's color
+  - Card glow effect shows owner's color when ability is ready to activate
+  - Inner glow and overlay effects scale with card power (higher power = more visible)
+- **Shared Visual Effects**: Highlight effects are now broadcast to all players with player-colored distinction
 
 ## [0.2.5t] - 2026-01-03
 
