@@ -309,6 +309,8 @@ export interface CursorStackState {
     requireStatusFromSourceOwner?: boolean; // Optional: target status must be added by the player executing the ability
     mustBeAdjacentToSource?: boolean; // Optional: target must be adjacent to sourceCoords
     mustBeInLineWithSource?: boolean; // Optional: target must be in line with sourceCoords
+    maxDistanceFromSource?: number; // Maximum Chebyshev distance from source (e.g., 2 = within 2 cells including diagonals)
+    maxOrthogonalDistance?: number; // Maximum Manhattan/orthogonal distance from source (walking distance)
     placeAllAtOnce?: boolean; // Optional: if true, placing the stack puts ALL counters on one target instead of one by one
     chainedAction?: AbilityAction; // Optional: Action to enter immediately after the stack is depleted
     recordContext?: boolean; // Optional: If true, saves the target to CommandContext
@@ -336,7 +338,7 @@ export interface CounterSelectionData {
  * Represents a structured action for the auto-ability system.
  */
 export type AbilityAction = {
-    type: 'CREATE_STACK' | 'ENTER_MODE' | 'OPEN_MODAL' | 'GLOBAL_AUTO_APPLY' | 'ABILITY_COMPLETE';
+    type: 'CREATE_STACK' | 'ENTER_MODE' | 'OPEN_MODAL' | 'GLOBAL_AUTO_APPLY' | 'ABILITY_COMPLETE' | 'REVEREND_SETUP_SCORE';
     mode?: string;
     tokenType?: string;
     count?: number;
@@ -356,6 +358,8 @@ export type AbilityAction = {
     requireStatusFromSourceOwner?: boolean; // Optional: target status must be added by the player executing the ability
     mustBeAdjacentToSource?: boolean;
     mustBeInLineWithSource?: boolean;
+    maxDistanceFromSource?: number; // Maximum Chebyshev distance from source (e.g., 2 = within 2 cells including diagonals)
+    maxOrthogonalDistance?: number; // Maximum Manhattan/orthogonal distance from source (walking distance)
     placeAllAtOnce?: boolean;
     chainedAction?: AbilityAction;
     readyStatusToRemove?: string; // The ready status to remove when this action is executed/cancelled/has no targets

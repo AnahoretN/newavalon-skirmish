@@ -95,6 +95,42 @@ export const useAppAbilities = ({
       return
     }
 
+    // Handle REVEREND_SETUP_SCORE - immediate scoring based on Exploit count
+    if (action.type === 'REVEREND_SETUP_SCORE') {
+      const ownerId = action.sourceCard?.ownerId ?? 0
+      let exploitCount = 0
+      for (let r = 0; r < gameState.board.length; r++) {
+        for (let c = 0; c < gameState.board[r].length; c++) {
+          const card = gameState.board[r][c]?.card
+          // Counters are stored in statuses, not a counters property
+          if (card?.statuses) {
+            const exploitCounters = card.statuses.filter((s: any) => s.type === 'Exploit' && s.addedByPlayerId === ownerId)
+            exploitCount += exploitCounters.length
+          }
+        }
+      }
+      if (exploitCount > 0) {
+        updatePlayerScore(ownerId, exploitCount)
+        triggerFloatingText([{
+          row: sourceCoords.row,
+          col: sourceCoords.col,
+          text: `+${exploitCount}`,
+          playerId: ownerId,
+        }])
+      } else {
+        // Show 0 even if no exploits (for feedback)
+        triggerFloatingText([{
+          row: sourceCoords.row,
+          col: sourceCoords.col,
+          text: `+0`,
+          playerId: ownerId,
+        }])
+      }
+      // Mark ability as used
+      markAbilityUsed(sourceCoords, !!action.isDeployAbility)
+      return
+    }
+
     // 1. Global Auto Apply
     if (action.type === 'GLOBAL_AUTO_APPLY') {
       if (action.payload?.customAction === 'FINN_SCORING') {
@@ -337,6 +373,8 @@ export const useAppAbilities = ({
           requireStatusFromSourceOwner: action.requireStatusFromSourceOwner, // New prop
           mustBeAdjacentToSource: action.mustBeAdjacentToSource,
           mustBeInLineWithSource: action.mustBeInLineWithSource,
+          maxDistanceFromSource: action.maxDistanceFromSource, // New prop for distance-based targeting
+          maxOrthogonalDistance: action.maxOrthogonalDistance, // New prop for orthogonal distance targeting
           placeAllAtOnce: action.placeAllAtOnce,
           chainedAction: action.chainedAction,
           // Only set targetOwnerId if explicitly specified in action (not for Censor which targets any card with own exploit)
@@ -434,19 +472,37 @@ export const useAppAbilities = ({
         return
       }
       if (action.mode === 'PRINCEPS_SHIELD_THEN_AIM') {
-        addBoardCardStatus(sourceCoords, 'Shield', action.sourceCard!.ownerId!)
-        setCursorStack({
-          type: 'Aim',
+        // 1. Shield Self automatically
+        const actorId = action.sourceCard!.ownerId!
+        addBoardCardStatus(sourceCoords, 'Shield', actorId)
+
+        // 2. Define the Aim Stack action (no restrictions - can target ANY card in line)
+        const aimStackAction: AbilityAction = {
+          type: 'CREATE_STACK',
+          tokenType: 'Aim',
           count: 1,
-          isDragging: false,
-          sourceCoords: sourceCoords,
+          mustBeInLineWithSource: true, // Target must be in line with Princeps
           sourceCard: action.sourceCard,
-          targetOwnerId: action.sourceCard?.ownerId,
-          mustBeInLineWithSource: true, // Updated: Target must be in line with Princeps
-          requiredTargetStatus: 'Threat',
-          requireStatusFromSourceOwner: true, // Only own threats
+          sourceCoords: sourceCoords,
           isDeployAbility: action.isDeployAbility,
-        })
+        }
+
+        // 3. Check Valid Targets -> Stack Mode or No Target
+        const hasTargets = checkActionHasTargets(aimStackAction, gameState, actorId, commandContext)
+
+        if (hasTargets) {
+          setCursorStack({
+            type: 'Aim',
+            count: 1,
+            isDragging: false,
+            sourceCoords: sourceCoords,
+            sourceCard: action.sourceCard,
+            mustBeInLineWithSource: true, // Target must be in line with Princeps
+            isDeployAbility: action.isDeployAbility,
+          })
+        } else {
+          triggerNoTarget(sourceCoords)
+        }
         return
       }
       if (action.mode === 'GAWAIN_DEPLOY_SHIELD_AIM') {
@@ -722,6 +778,16 @@ export const useAppAbilities = ({
         setAbilityMode({
           type: 'ENTER_MODE',
           mode: 'ZIUS_EXPLOIT_AND_SCORE',
+          sourceCard: action.sourceCard,
+          sourceCoords: sourceCoords,
+          isDeployAbility: action.isDeployAbility,
+          payload: action.payload,
+        })
+      } else if (action.mode === 'REVEREND_DOUBLE_EXPLOIT') {
+        // Reverend Deploy: Select a card with your Exploit to double the counters
+        setAbilityMode({
+          type: 'ENTER_MODE',
+          mode: 'REVEREND_DOUBLE_EXPLOIT',
           sourceCard: action.sourceCard,
           sourceCoords: sourceCoords,
           isDeployAbility: action.isDeployAbility,
@@ -1039,7 +1105,8 @@ export const useAppAbilities = ({
                 abilityMode.mode !== 'SELECT_UNIT_FOR_MOVE' &&
                 abilityMode.mode !== 'SELECT_TARGET' &&
                 abilityMode.mode !== 'RIOT_PUSH' &&
-                abilityMode.mode !== 'RIOT_MOVE'
+                abilityMode.mode !== 'RIOT_MOVE' &&
+                abilityMode.mode !== 'REVEREND_DOUBLE_EXPLOIT'
       ) {
         return
       }
@@ -1146,6 +1213,30 @@ export const useAppAbilities = ({
           if (targetCard && (targetCard.ownerId === actorId || (gameState.players.find(p => p.id === actorId)?.teamId !== undefined && gameState.players.find(p => p.id === targetCard.ownerId)?.teamId === gameState.players.find(p => p.id === actorId)?.teamId))) {
             modifyBoardCardPower({ row: r, col: c1 }, 1)
           }
+        }
+
+        if (sourceCoords && sourceCoords.row >= 0) {
+          markAbilityUsed(sourceCoords, isDeployAbility)
+        }
+        setTimeout(() => setAbilityMode(null), 100)
+        return
+      }
+
+      if (mode === 'REVEREND_DOUBLE_EXPLOIT') {
+        // Reverend Deploy: Double the Exploit counters on the selected card (any card, even with 0 exploits)
+        if (!actorId) return
+        const ownerId = actorId
+        // Counters are stored in statuses, not a counters property
+        const currentExploits = (card.statuses || []).filter((s: any) => s.type === 'Exploit' && s.addedByPlayerId === ownerId).length
+
+        // Add the same number of Exploits (effectively doubling) - if 0, adds 0
+        for (let i = 0; i < currentExploits; i++) {
+          moveItem({
+            card: { id: 'dummy', deck: 'counter', name: '', imageUrl: '', fallbackImage: '', power: 0, ability: '', types: [] },
+            source: 'counter_panel',
+            statusType: 'Exploit',
+            count: 1,
+          }, { target: 'board', boardCoords })
         }
 
         if (sourceCoords && sourceCoords.row >= 0) {

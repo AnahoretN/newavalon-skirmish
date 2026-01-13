@@ -247,7 +247,7 @@ const CARD_ABILITIES: CardAbilityDefinition[] = [
       type: 'GLOBAL_AUTO_APPLY',
       payload: {
         tokenType: 'Exploit',
-        filter: (target: Card) => target.ownerId !== ownerId && hasStatus(target, 'Threat', ownerId),
+        filter: (target: Card) => target.ownerId !== ownerId && target.statuses?.some(s => s.type === 'Threat'),
       },
       sourceCard: _card,
       sourceCoords: coords,
@@ -333,7 +333,7 @@ const CARD_ABILITIES: CardAbilityDefinition[] = [
       tokenType: 'Aim',
       count: 1,
       sourceCoords: coords,
-      mustBeInLineWithSource: true,
+      maxOrthogonalDistance: 2, // Within 2 orthogonal steps (walking distance, not diagonal)
       sourceCard: card,
     })
   },
@@ -828,12 +828,23 @@ const CARD_ABILITIES: CardAbilityDefinition[] = [
   {
     baseId: 'reverendOfTheChoir',
     activationType: 'setup',
-    getAction: (_card, _gameState, _ownerId, coords) => ({
-      type: 'CREATE_STACK',
-      tokenType: 'Exploit',
-      count: 1,
+    getAction: (_card, _gameState, ownerId, coords) => ({
+      type: 'REVEREND_SETUP_SCORE',
       sourceCard: _card,
-      sourceCoords: coords
+      sourceCoords: coords,
+      ownerId: ownerId,
+    })
+  },
+
+  {
+    baseId: 'reverendOfTheChoir',
+    activationType: 'deploy',
+    getAction: (_card, _gameState, ownerId, coords) => ({
+      type: 'ENTER_MODE',
+      mode: 'REVEREND_DOUBLE_EXPLOIT',
+      sourceCard: _card,
+      sourceCoords: coords,
+      payload: {},
     })
   },
 

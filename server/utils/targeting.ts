@@ -21,6 +21,8 @@ export const validateTarget = (
         requireStatusFromSourceOwner?: boolean;
         mustBeAdjacentToSource?: boolean;
         mustBeInLineWithSource?: boolean;
+        maxDistanceFromSource?: number; // Maximum Chebyshev distance (King's move) from source
+        maxOrthogonalDistance?: number; // Maximum Manhattan/orthogonal distance from source (walking distance)
         sourceCoords?: { row: number, col: number };
         tokenType?: string; // Passed to check for uniqueness
     },
@@ -117,6 +119,26 @@ export const validateTarget = (
     }
   }
 
+  // 9. Max Distance Check (Chebyshev distance - max of row/col difference)
+  if (constraints.maxDistanceFromSource !== undefined && constraints.sourceCoords && target.boardCoords) {
+    const { row: r1, col: c1 } = constraints.sourceCoords
+    const { row: r2, col: c2 } = target.boardCoords
+    const distance = Math.max(Math.abs(r1 - r2), Math.abs(c1 - c2))
+    if (distance > constraints.maxDistanceFromSource) {
+      return false
+    }
+  }
+
+  // 10. Max Orthogonal Distance Check (Manhattan distance - row diff + col diff, for orthogonal movement)
+  if (constraints.maxOrthogonalDistance !== undefined && constraints.sourceCoords && target.boardCoords) {
+    const { row: r1, col: c1 } = constraints.sourceCoords
+    const { row: r2, col: c2 } = target.boardCoords
+    const distance = Math.abs(r1 - r2) + Math.abs(c1 - c2)
+    if (distance > constraints.maxOrthogonalDistance) {
+      return false
+    }
+  }
+
   return true
 }
 
@@ -156,6 +178,8 @@ export const calculateValidTargets = (
       requireStatusFromSourceOwner: action.requireStatusFromSourceOwner,
       mustBeAdjacentToSource: action.mustBeAdjacentToSource,
       mustBeInLineWithSource: action.mustBeInLineWithSource,
+      maxDistanceFromSource: action.maxDistanceFromSource,
+      maxOrthogonalDistance: action.maxOrthogonalDistance,
       sourceCoords: action.sourceCoords,
       tokenType: action.tokenType,
     }
@@ -192,6 +216,20 @@ export const calculateValidTargets = (
   }
 
   const { mode, payload, sourceCoords, contextCheck } = action
+
+  // Special case: REVEREND_DOUBLE_EXPLOIT - can target ANY card on the battlefield
+  if (mode === 'REVEREND_DOUBLE_EXPLOIT') {
+    // Iterate ONLY over active grid bounds - all cards with any unit are valid targets
+    for (let r = minBound; r <= maxBound; r++) {
+      for (let c = minBound; c <= maxBound; c++) {
+        const cell = board[r][c]
+        if (cell.card) {
+          targets.push({ row: r, col: c })
+        }
+      }
+    }
+    return targets
+  }
 
   // 1. Generic TARGET selection
   if ((mode === 'SELECT_TARGET' || mode === 'CENSOR_SWAP' || mode === 'ZEALOUS_WEAKEN' || mode === 'CENTURION_BUFF' || mode === 'SELECT_UNIT_FOR_MOVE') && payload.filter && typeof payload.filter === 'function') {
@@ -521,6 +559,19 @@ export const checkActionHasTargets = (action: AbilityAction, currentGameState: G
   // Special Case: Select Deck has global targets (all decks)
   if (action.mode === 'SELECT_DECK') {
     return true
+  }
+
+  // Special Case: REVEREND_DOUBLE_EXPLOIT can target any card on the battlefield
+  if (action.mode === 'REVEREND_DOUBLE_EXPLOIT') {
+    // Check if there's at least one card on the battlefield
+    for (let r = 0; r < currentGameState.board.length; r++) {
+      for (let c = 0; c < currentGameState.board[r].length; c++) {
+        if (currentGameState.board[r][c].card) {
+          return true
+        }
+      }
+    }
+    return false
   }
 
   // Special Case: Compound abilities that start with an immediate self-effect are always valid.

@@ -1,5 +1,5 @@
 import type { Card, GameState } from '@/types'
-import { canActivateAbility as serverCanActivateAbility } from '@server/utils/autoAbilities'
+import { canActivateAbility as serverCanActivateAbility, getCardAbilityTypes } from '@server/utils/autoAbilities'
 
 // Ready status constants
 export const READY_STATUS_DEPLOY = 'readyDeploy'
@@ -26,28 +26,12 @@ export const hasAnyReadyStatus = (card: Card): boolean => {
 }
 
 /**
- * Checks if a card's ability text contains a specific keyword
- * Case-insensitive to match "Deploy:" with "deploy:"
- */
-const hasAbilityKeyword = (abilityText: string, keyword: string): boolean => {
-  if (!abilityText) {
-    return false
-  }
-  // Case-insensitive check
-  const lowerAbility = abilityText.toLowerCase()
-  const lowerKeyword = keyword.toLowerCase()
-  return lowerAbility.includes(lowerKeyword)
-}
-
-/**
  * Gets the ready status that should be used for the current phase
  * Returns null if no ready status is available for this phase
  */
 export const getReadyStatusForPhase = (card: Card, phaseIndex: number): string | null => {
-  const abilityText = card.ability || ''
-
   // Check deploy first (highest priority)
-  if (hasReadyStatus(card, READY_STATUS_DEPLOY) && hasAbilityKeyword(abilityText, 'deploy:')) {
+  if (hasReadyStatus(card, READY_STATUS_DEPLOY)) {
     return READY_STATUS_DEPLOY
   }
 
@@ -57,12 +41,12 @@ export const getReadyStatusForPhase = (card: Card, phaseIndex: number): string |
   // Main phase (phase 1) is for manual actions, no phase abilities
   if (phaseIndex === 0) {
     // Setup phase only
-    if (hasReadyStatus(card, READY_STATUS_SETUP) && hasAbilityKeyword(abilityText, 'setup:')) {
+    if (hasReadyStatus(card, READY_STATUS_SETUP)) {
       return READY_STATUS_SETUP
     }
   } else if (phaseIndex === 2) {
     // Commit phase
-    if (hasReadyStatus(card, READY_STATUS_COMMIT) && hasAbilityKeyword(abilityText, 'commit:')) {
+    if (hasReadyStatus(card, READY_STATUS_COMMIT)) {
       return READY_STATUS_COMMIT
     }
   }
@@ -124,15 +108,14 @@ export const canActivateAbility = (card: Card, phaseIndex: number, _activePlayer
  */
 export const getAvailableReadyStatuses = (card: Card): string[] => {
   const available: string[] = []
-  const abilityText = card.ability || ''
 
-  if (hasReadyStatus(card, READY_STATUS_DEPLOY) && hasAbilityKeyword(abilityText, 'deploy:')) {
+  if (hasReadyStatus(card, READY_STATUS_DEPLOY)) {
     available.push(READY_STATUS_DEPLOY)
   }
-  if (hasReadyStatus(card, READY_STATUS_SETUP) && hasAbilityKeyword(abilityText, 'setup:')) {
+  if (hasReadyStatus(card, READY_STATUS_SETUP)) {
     available.push(READY_STATUS_SETUP)
   }
-  if (hasReadyStatus(card, READY_STATUS_COMMIT) && hasAbilityKeyword(abilityText, 'commit:')) {
+  if (hasReadyStatus(card, READY_STATUS_COMMIT)) {
     available.push(READY_STATUS_COMMIT)
   }
 
@@ -141,33 +124,28 @@ export const getAvailableReadyStatuses = (card: Card): string[] => {
 
 /**
  * Initializes ready statuses for a card entering the battlefield.
- * Only adds statuses for abilities that the card actually has.
+ * Uses server-side CARD_ABILITIES list to determine which abilities a card has.
  */
 export const initializeReadyStatuses = (card: Card, ownerId: number): void => {
   if (!card.statuses) {
     card.statuses = []
   }
 
-  const abilityText = card.ability || ''
+  // Use server-side ability definitions to determine which ready statuses to add
+  const abilityTypes = getCardAbilityTypes(card)
 
-  // Add readyDeploy only if card has deploy: ability
-  if (hasAbilityKeyword(abilityText, 'deploy:')) {
-    if (!card.statuses.some(s => s.type === READY_STATUS_DEPLOY)) {
-      card.statuses.push({ type: READY_STATUS_DEPLOY, addedByPlayerId: ownerId })
+  for (const abilityType of abilityTypes) {
+    let readyStatusType = ''
+    if (abilityType === 'deploy') {
+      readyStatusType = READY_STATUS_DEPLOY
+    } else if (abilityType === 'setup') {
+      readyStatusType = READY_STATUS_SETUP
+    } else if (abilityType === 'commit') {
+      readyStatusType = READY_STATUS_COMMIT
     }
-  }
 
-  // Add readySetup only if card has setup: ability
-  if (hasAbilityKeyword(abilityText, 'setup:')) {
-    if (!card.statuses.some(s => s.type === READY_STATUS_SETUP)) {
-      card.statuses.push({ type: READY_STATUS_SETUP, addedByPlayerId: ownerId })
-    }
-  }
-
-  // Add readyCommit only if card has commit: ability
-  if (hasAbilityKeyword(abilityText, 'commit:')) {
-    if (!card.statuses.some(s => s.type === READY_STATUS_COMMIT)) {
-      card.statuses.push({ type: READY_STATUS_COMMIT, addedByPlayerId: ownerId })
+    if (readyStatusType && !card.statuses.some(s => s.type === readyStatusType)) {
+      card.statuses.push({ type: readyStatusType, addedByPlayerId: ownerId })
     }
   }
 }
@@ -187,25 +165,31 @@ export const removeAllReadyStatuses = (card: Card): void => {
 /**
  * Resets phase-specific ready statuses (readySetup, readyCommit) for a player's cards at turn start.
  * Does NOT reset readyDeploy (only once per game when entering battlefield).
+ * Uses server-side CARD_ABILITIES list to determine which abilities a card has.
  */
 export const resetPhaseReadyStatuses = (card: Card, ownerId: number): void => {
   if (!card.statuses) {
     card.statuses = []
   }
 
-  const abilityText = card.ability || ''
+  // Use server-side ability definitions to determine which ready statuses to add
+  const abilityTypes = getCardAbilityTypes(card)
 
-  // Add readySetup only if card has setup: ability
-  if (hasAbilityKeyword(abilityText, 'setup:')) {
-    if (!card.statuses.some(s => s.type === READY_STATUS_SETUP)) {
-      card.statuses.push({ type: READY_STATUS_SETUP, addedByPlayerId: ownerId })
+  for (const abilityType of abilityTypes) {
+    // Skip deploy - it's only added once when entering battlefield
+    if (abilityType === 'deploy') {
+      continue
     }
-  }
 
-  // Add readyCommit only if card has commit: ability
-  if (hasAbilityKeyword(abilityText, 'commit:')) {
-    if (!card.statuses.some(s => s.type === READY_STATUS_COMMIT)) {
-      card.statuses.push({ type: READY_STATUS_COMMIT, addedByPlayerId: ownerId })
+    let readyStatusType = ''
+    if (abilityType === 'setup') {
+      readyStatusType = READY_STATUS_SETUP
+    } else if (abilityType === 'commit') {
+      readyStatusType = READY_STATUS_COMMIT
+    }
+
+    if (readyStatusType && !card.statuses.some(s => s.type === readyStatusType)) {
+      card.statuses.push({ type: readyStatusType, addedByPlayerId: ownerId })
     }
   }
 }

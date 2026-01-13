@@ -261,7 +261,7 @@
       "imageUrl": "https://res.cloudinary.com/dxxh6meej/image/upload/v1764678937/Reverend_of_The_Choir_vts8im.png",
       "fallbackImage": "/images/cards/FUS_SIGNAL_PROPHET.png",
       "power": 2,
-      "ability": "Pass: Supports all your units in lines.\nSetup: Exploit any card.",
+      "ability": "Setup: Gain 1 point for each of your Exploits on the battlefield.\nDeploy: Double the Exploit counters on any card.",
       "flavorText": "The hum of the servers is a hymn to the initiated.",
       "types": ["Unit", "Hero", "Fusion", "Device"],
       "faction": "Fusion",
@@ -564,7 +564,7 @@
     },
     "Resurrected": {
         "name": "Resurrected",
-        "imageUrl": "",
+        "imageUrl": "https://res.cloudinary.com/dxxh6meej/image/upload/v1768321040/Resurrected_tscgk9.png",
         "description": "This unit recently returned from the discard pile. It will become Stunned at the start of the next phase.",
         "sortOrder": 8,
         "allowedPanels": [],
