@@ -330,6 +330,45 @@ export function handleUpdateState(ws, data) {
         existingGameState.players = serverPlayersAfterDraw;
       }
 
+      // CRITICAL FIX: Remove cards from hand/deck/discard that exist on the board
+      // This prevents duplicate cards when a non-active player moves a card
+      // (board was updated by Object.assign, but player hand/deck was restored from server state)
+      const boardCardIds = new Set<string>();
+      existingGameState.board?.forEach((row: any[]) => {
+        row.forEach((cell: any) => {
+          if (cell.card?.id) {
+            boardCardIds.add(cell.card.id);
+          }
+        });
+      });
+
+      // For each player, remove any cards that are on the board
+      existingGameState.players.forEach((player: any) => {
+        const removeCardsFromList = (list: any[]) => {
+          if (!list) return;
+          const initialLength = list.length;
+          // Filter out cards that are on the board
+          for (let i = list.length - 1; i >= 0; i--) {
+            if (boardCardIds.has(list[i].id)) {
+              list.splice(i, 1);
+            }
+          }
+          if (list.length !== initialLength) {
+            logger.info(`[BoardHandSync] Removed ${initialLength - list.length} card(s) from player ${player.id}'s list that were on board`);
+          }
+        };
+
+        removeCardsFromList(player.hand);
+        removeCardsFromList(player.deck);
+        removeCardsFromList(player.discard);
+
+        // Also clear announcedCard if it's on the board
+        if (player.announcedCard && boardCardIds.has(player.announcedCard.id)) {
+          logger.info(`[BoardHandSync] Clearing announcedCard for player ${player.id} - card is on board`);
+          player.announcedCard = null;
+        }
+      });
+
       // Restore connection flags if reconnection
       if (assignedPlayerId !== null) {
         clientPlayers?.forEach((clientPlayer: any) => {
