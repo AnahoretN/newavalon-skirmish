@@ -152,11 +152,12 @@ export function handleUpdateState(ws, data) {
       // This ensures the draw happens on the correct server state
       let drawnPlayerId: number | null = null;
       if ((playerChanged || clientRequestsDrawPhase) && clientActivePlayerId !== null) {
-        logger.info(`[UpdateState] 🎯 Triggering draw - playerChanged=${playerChanged}, clientRequestsDrawPhase=${clientRequestsDrawPhase}`);
+        logger.info(`[UpdateState] 🎯 Triggering draw - playerChanged=${playerChanged}, clientRequestsDrawPhase=${clientRequestsDrawPhase}, BEFORE: hand=${existingGameState.players.find(p => p.id === clientActivePlayerId)?.hand?.length || 0}`);
         existingGameState.activePlayerId = clientActivePlayerId;
         existingGameState.currentPhase = 0; // Set to Setup after draw
         performDrawPhase(existingGameState);
         drawnPlayerId = clientActivePlayerId;
+        logger.info(`[UpdateState] 🎯 AFTER performDrawPhase: hand=${existingGameState.players.find(p => p.id === clientActivePlayerId)?.hand?.length || 0}`);
       }
 
       // Save server players AFTER draw (so we have the updated hand/deck)
@@ -191,6 +192,12 @@ export function handleUpdateState(ws, data) {
             // NEW: Also preserve hand/deck if this is the NEW active player and server has more cards
             const isNewActivePlayer = clientPlayer.id === clientActivePlayerId && clientPlayer.id !== previousActivePlayerId;
             const isNewActiveWithMoreCards = isNewActivePlayer && serverHasMoreCards;
+
+            // DEBUG LOG for active player
+            if (clientPlayer.id === clientActivePlayerId) {
+              logger.info(`[UpdateState] MERGE player ${clientPlayer.id}: drawnPlayerId=${drawnPlayerId}, preserveServerCards=${preserveServerCards}, serverHasMoreCards=${serverHasMoreCards}, preserveHandDueToSize=${preserveHandDueToSize}, isNewActiveWithMoreCards=${isNewActiveWithMoreCards}`);
+              logger.info(`[UpdateState] MERGE player ${clientPlayer.id}: serverHand=${serverPlayerAfterDraw.hand.length}, clientHand=${clientPlayer.hand.length}, finalHand=${((preserveServerCards || preserveHandDueToSize || isNewActiveWithMoreCards) ? serverPlayerAfterDraw.hand : clientPlayer.hand).length}`);
+            }
 
             mergedPlayers.push({
               ...serverPlayerAfterDraw,
