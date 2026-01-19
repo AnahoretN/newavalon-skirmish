@@ -93,7 +93,6 @@ const App = memo(function App() {
     requestCardReveal,
     respondToRevealRequest,
     syncGame,
-    resetGame,
     toggleActivePlayer,
     toggleAutoDraw,
     forceReconnect,
@@ -118,7 +117,7 @@ const App = memo(function App() {
     resurrectDiscardedCard,
     spawnToken,
     scoreLine,
-    confirmRoundEnd,
+    closeRoundEndModal,
     resetDeployStatus,
     scoreDiagonal,
     removeStatusByType,
@@ -237,28 +236,28 @@ const App = memo(function App() {
 
   // Reset highlight refs when exiting a game or when gameId changes
   useEffect(() => {
-    if (!gameState.gameId) {
+    if (!gameState?.gameId) {
       sentHighlightsHash.current = ''
       lastExternalHighlightsTimeRef.current = 0
       isLocalHighlightsOwnerRef.current = false
     }
-  }, [gameState.gameId])
+  }, [gameState?.gameId])
 
   // Auto-draw is now stored per-player in gameState.players
   const isAutoDrawEnabled = useMemo(() => {
-    if (!localPlayerId) {
+    if (!localPlayerId || !gameState) {
       return false
     }
     const localPlayer = gameState.players.find(p => p.id === localPlayerId)
     return localPlayer?.autoDrawEnabled ?? true // Default to true if not set
-  }, [gameState.players, localPlayerId])
+  }, [gameState?.players, localPlayerId])
 
   // Memoize board size to avoid unnecessary effect re-renders
-  const boardSize = useMemo(() => gameState.board.length, [gameState.board.length])
+  const boardSize = useMemo(() => gameState?.board?.length ?? 6, [gameState?.board?.length])
 
   // Save auto-draw setting to localStorage when it changes
   useEffect(() => {
-    if (!localPlayerId) {
+    if (!localPlayerId || !gameState) {
       return
     }
     const localPlayer = gameState.players.find(p => p.id === localPlayerId)
@@ -269,7 +268,7 @@ const App = memo(function App() {
         // Ignore localStorage errors
       }
     }
-  }, [localPlayerId, gameState.players])
+  }, [localPlayerId, gameState?.players])
 
   // Hide dummy cards setting - stored in localStorage
   const [hideDummyCards, setHideDummyCards] = useState(() => {
@@ -312,11 +311,11 @@ const App = memo(function App() {
   const [cursorStack, setCursorStack] = useState<CursorStackState | null>(null)
 
   const pendingRevealRequest = useMemo(() => {
-    if (!localPlayerId) {
+    if (!localPlayerId || !gameState) {
       return null
     }
     return gameState.revealRequests?.find(req => req.toPlayerId === localPlayerId)
-  }, [gameState.revealRequests, localPlayerId])
+  }, [gameState?.revealRequests, localPlayerId])
 
   const {
     playCommandCard,
@@ -441,20 +440,20 @@ const App = memo(function App() {
   const isHost = useMemo(() => localPlayerId === 1, [localPlayerId])
 
   const localPlayer = useMemo(
-    () => gameState.players?.find(p => p.id === localPlayerId),
-    [gameState.players, localPlayerId],
+    () => gameState?.players?.find(p => p.id === localPlayerId),
+    [gameState?.players, localPlayerId],
   )
 
   const isGameActive = useMemo(
-    () => gameState.gameId && (localPlayer || isSpectator),
-    [gameState.gameId, localPlayer, isSpectator],
+    () => gameState?.gameId && (localPlayer || isSpectator),
+    [gameState?.gameId, localPlayer, isSpectator],
   )
 
   const playerColorMap = useMemo(() => {
     const map = new Map<number, PlayerColor>()
-    gameState.players?.forEach(p => map.set(p.id, p.color))
+    gameState?.players?.forEach(p => map.set(p.id, p.color))
     return map
-  }, [gameState.players])
+  }, [gameState?.players])
 
   const isTargetingMode = useMemo(
     () => !!abilityMode || !!cursorStack,
@@ -732,20 +731,21 @@ const App = memo(function App() {
     setJustAutoTransitioned(false)
     // Clear highlights when phase changes (especially when leaving Scoring)
     if (localHighlights.length > 0) {
-      console.log('[Phase Change] Clearing highlights due to phase change to', gameState.currentPhase)
+      console.log('[Phase Change] Clearing highlights due to phase change to', gameState?.currentPhase)
       setLocalHighlights([])
       sentHighlightsHash.current = ''
       isLocalHighlightsOwnerRef.current = false
     }
-  }, [gameState.currentPhase])
+  }, [gameState?.currentPhase])
 
   // Recheck ability readiness when phase changes
   useEffect(() => {
     setAbilityCheckKey(prev => prev + 1)
-  }, [gameState.currentPhase])
+  }, [gameState?.currentPhase])
 
   // Recheck ability readiness when Support/Threat tokens change on active player's cards
   useEffect(() => {
+    if (!gameState) return
     const activePlayerId = gameState.activePlayerId
     if (activePlayerId === undefined) {
       return
@@ -769,7 +769,7 @@ const App = memo(function App() {
       tokenHashRef.current = tokenHash
       setAbilityCheckKey(prev => prev + 1)
     }
-  }, [gameState.board, gameState.activePlayerId])
+  }, [gameState?.board, gameState?.activePlayerId])
 
   useEffect(() => {
     let effectiveAction: AbilityAction | null = abilityMode
@@ -1120,7 +1120,7 @@ const App = memo(function App() {
         }
       }
     }
-  }, [gameState.isScoringStep, gameState.activePlayerId, localPlayerId, gameState.board, abilityMode, nextPhase, gameState.players])
+  }, [gameState?.isScoringStep, gameState?.activePlayerId, localPlayerId, gameState?.board, abilityMode, nextPhase, gameState?.players])
 
   useEffect(() => {
     if (actionQueue.length > 0 && !abilityMode && !cursorStack) {
@@ -1297,12 +1297,6 @@ const App = memo(function App() {
     setLocalPlayerId(1)
   }, [createGame, setLocalPlayerId])
 
-  const handleResetGameWithRestore = useCallback(() => {
-    resetGame()
-    // Set game to private after New Game
-    setGamePrivacy(true)
-  }, [resetGame, setGamePrivacy])
-
   const handleOpenJoinModal = useCallback(() => {
     requestGamesList()
     setModalsState(prev => ({ ...prev, isJoinModalOpen: true }))
@@ -1392,7 +1386,7 @@ const App = memo(function App() {
     if (isOwner && card.isFaceDown) {
       flipBoardCard(boardCoords); return
     }
-    const owner = card.ownerId ? gameState.players.find(p => p.id === card.ownerId) : undefined
+    const owner = card.ownerId ? gameState?.players?.find(p => p.id === card.ownerId) : undefined
     const isRevealedByRequest = card.statuses?.some(s => s.type === 'Revealed' && s.addedByPlayerId === localPlayerId)
     const isVisibleForMe = !card.isFaceDown || card.revealedTo === 'all' || (Array.isArray(card.revealedTo) && card.revealedTo.includes(localPlayerId!)) || isRevealedByRequest
     if (isVisibleForMe || isOwner) {
@@ -1530,7 +1524,7 @@ const App = memo(function App() {
 
   const renderedContextMenu = useMemo(() => {
     // ... (Context menu logic same as original)
-    if (!contextMenuProps || localPlayerId === null) {
+    if (!contextMenuProps || localPlayerId === null || !gameState) {
       return null
     }
     const { type, data, x, y } = contextMenuProps
@@ -1544,7 +1538,7 @@ const App = memo(function App() {
       let card = isBoardItem ? gameState.board[data.boardCoords.row][data.boardCoords.col].card : data.card
       let player = isBoardItem ? null : data.player
       if (!isBoardItem && player) {
-        const currentPlayer = gameState.players.find(p => p.id === player.id)
+        const currentPlayer = gameState.players?.find(p => p.id === player.id)
         if (currentPlayer) {
           player = currentPlayer; card = currentPlayer.announcedCard || card
         }
@@ -1552,7 +1546,7 @@ const App = memo(function App() {
       if (!card) {
         setContextMenuProps(null); return null
       }
-      const owner = card.ownerId ? gameState.players.find(p => p.id === card.ownerId) : undefined
+      const owner = card.ownerId ? gameState.players?.find(p => p.id === card.ownerId) : undefined
       const isOwner = card.ownerId === localPlayerId
       const isDummyCard = !!owner?.isDummy
       const canControl = isOwner || isDummyCard
@@ -1648,7 +1642,7 @@ const App = memo(function App() {
     } else if (['handCard', 'discardCard', 'deckCard'].includes(type)) {
       let { card, player } = data
       const { boardCoords, cardIndex } = data
-      const currentPlayer = gameState.players.find(p => p.id === player.id)
+      const currentPlayer = gameState.players?.find(p => p.id === player.id)
       if (currentPlayer) {
         player = currentPlayer
         if (type === 'handCard') {
@@ -1660,7 +1654,7 @@ const App = memo(function App() {
         }
       }
       const canControl = player.id === localPlayerId || !!player.isDummy
-      const localP = gameState.players.find(p => p.id === localPlayerId)
+      const localP = gameState.players?.find(p => p.id === localPlayerId)
       const isTeammate = localP?.teamId !== undefined && player.teamId === localP.teamId
       const isRevealedToMe = card.revealedTo === 'all' || (Array.isArray(card.revealedTo) && card.revealedTo.includes(localPlayerId))
       const isRevealedByRequest = card.statuses?.some((s: any) => s.type === 'Revealed' && s.addedByPlayerId === localPlayerId)
@@ -1684,7 +1678,7 @@ const App = memo(function App() {
 
       // Show View option if visible to local player
       if (isVisible) {
-        const owner = card.ownerId ? gameState.players.find(p => p.id === card.ownerId) : undefined
+        const owner = card.ownerId ? gameState?.players?.find(p => p.id === card.ownerId) : undefined
         items.push({ label: t('view'), isBold: true, onClick: () => setViewingCard({ card, player: owner }) })
       }
 
@@ -1862,7 +1856,6 @@ const App = memo(function App() {
         gameId={gameState.gameId}
         isGameStarted={gameState.isGameStarted}
         onStartGame={handleStartGameSequence}
-        onResetGame={handleResetGameWithRestore}
         activeGridSize={gameState.activeGridSize}
         onGridSizeChange={setActiveGridSize}
         dummyPlayerCount={gameState.dummyPlayerCount}
@@ -1901,7 +1894,8 @@ const App = memo(function App() {
       {gameState.isRoundEndModalOpen && (
         <RoundEndModal
           gameState={gameState}
-          onConfirm={confirmRoundEnd}
+          onConfirm={closeRoundEndModal}
+          onContinueGame={closeRoundEndModal}
           onExit={exitGame}
         />
       )}

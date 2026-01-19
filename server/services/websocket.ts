@@ -76,7 +76,9 @@ import {
   handleToggleActivePlayer,
   handleNextPhase,
   handlePrevPhase,
-  handleSetPhase
+  handleSetPhase,
+  handleStartNextRound,
+  handleStartNewMatch
 } from '../handlers/phaseManagement.js';
 
 /**
@@ -220,6 +222,8 @@ function routeMessage(ws, data) {
     'NEXT_PHASE': handleNextPhase,
     'PREV_PHASE': handlePrevPhase,
     'SET_PHASE': handleSetPhase,
+    'START_NEXT_ROUND': handleStartNextRound,
+    'START_NEW_MATCH': handleStartNewMatch,
     'SET_DUMMY_PLAYER_COUNT': handleSetDummyPlayerCount,
     'UPDATE_PLAYER_NAME': handleUpdatePlayerName,
     'CHANGE_PLAYER_COLOR': handleChangePlayerColor,

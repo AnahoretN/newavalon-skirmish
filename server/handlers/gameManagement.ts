@@ -136,6 +136,10 @@ export function handleUpdateState(ws, data) {
       // OR if server IS in phase 0 but client sent -1 (stale state from another client's draw) - just restore phase, don't draw again
       const clientRequestsDraw = clientPhase === -1 && clientActivePlayerId !== null && clientActivePlayerId !== undefined && previousPhase !== 0;
 
+      // Detect if client is sending stale phase -1 after server has already processed draw
+      // This happens when client sends UPDATE_STATE with old phase=-1 after server already moved to phase 0
+      const isStalePhaseAfterDraw = clientPhase === -1 && previousPhase === 0;
+
       // Debug logging
       if (clientActivePlayerId !== undefined && clientActivePlayerId !== previousActivePlayerId) {
         logger.info(`[UpdateState] Player change: previous=${previousActivePlayerId}, client=${clientActivePlayerId}, phase=${clientPhase}, serverPhase=${previousPhase}`);
@@ -169,7 +173,29 @@ export function handleUpdateState(ws, data) {
       const serverPlayersAfterDraw = existingGameState.players;
 
       // Now update the game state with client's data (except for hand/deck of drawn player)
+      // IMPORTANT: Preserve round end modal state - if modal is open on server, keep it open
+      const preserveRoundEndState = existingGameState.isRoundEndModalOpen ||
+                                   existingGameState.roundEndTriggered ||
+                                   existingGameState.gameWinner !== null;
+
+      // Store round end state before merge
+      const roundEndStateToPreserve = {
+        isRoundEndModalOpen: existingGameState.isRoundEndModalOpen,
+        roundEndTriggered: existingGameState.roundEndTriggered,
+        gameWinner: existingGameState.gameWinner,
+        roundWinners: existingGameState.roundWinners
+      };
+
       Object.assign(existingGameState, updatedGameState);
+
+      // Restore round end state if it was active (prevent client from closing the modal)
+      if (preserveRoundEndState) {
+        existingGameState.isRoundEndModalOpen = roundEndStateToPreserve.isRoundEndModalOpen;
+        existingGameState.roundEndTriggered = roundEndStateToPreserve.roundEndTriggered;
+        existingGameState.gameWinner = roundEndStateToPreserve.gameWinner;
+        existingGameState.roundWinners = roundEndStateToPreserve.roundWinners;
+        logger.info(`[UpdateState] Preserving round end state - modalOpen: ${roundEndStateToPreserve.isRoundEndModalOpen}, winner: ${roundEndStateToPreserve.gameWinner}`);
+      }
 
       // IMPORTANT: Restore phase to 0 if we just performed a draw OR if server phase was 0 but client sent -1
       // This prevents stale client state (phase=-1 from another client's draw) from triggering duplicate draws
@@ -195,11 +221,12 @@ export function handleUpdateState(ws, data) {
           const serverPlayerAfterDraw = serverPlayersAfterDraw.find((p: any) => p.id === clientPlayer.id);
           if (serverPlayerAfterDraw) {
             // Determine if we should trust client's card state for this player
-            // We trust client if: they ARE the sending player, OR they are the active player
-            // This allows the active player to play cards and have that state reflected
+            // We trust client if: they ARE the sending player, OR they are the active player, OR they are a dummy player
+            // Dummy players are controlled by the host, so host is authoritative for their card state
             const isSendingPlayer = clientPlayer.id === sendingPlayerId;
             const isActivePlayer = clientPlayer.id === clientActivePlayerId;
-            const trustClientCards = isSendingPlayer || isActivePlayer;
+            const isDummyPlayer = serverPlayerAfterDraw.isDummy;
+            const trustClientCards = isSendingPlayer || isActivePlayer || isDummyPlayer;
 
             // Also preserve server's boardHistory if it's longer (has more recent plays)
             // This prevents stale client state from overwriting correct LastPlayed order
@@ -210,8 +237,41 @@ export function handleUpdateState(ws, data) {
               // Client's hand/deck are stale (they haven't received the draw yet)
               const justDrewForThisPlayer = drawnPlayerId === clientPlayer.id;
 
-            if (trustClientCards && !justDrewForThisPlayer) {
+            // Also detect stale phase -1 after draw: client is sending old state but server already processed draw
+            // In this case, preserve server's card state for the active player to prevent regression
+              const isStaleStateForActivePlayer = isStalePhaseAfterDraw && clientPlayer.id === clientActivePlayerId;
+
+            // CRITICAL: When client sends phase=-1 with a different activePlayerId (turn transition),
+            // the previous active player's card state in the client's message is STALE.
+            // The client doesn't know about cards that were drawn during previous turns.
+            // We must preserve server's card state for ALL players except possibly the NEW active player.
+            const isTurnTransition = clientPhase === -1 && clientActivePlayerId !== null && previousActivePlayerId !== clientActivePlayerId;
+            const isNewActivePlayer = clientPlayer.id === clientActivePlayerId && isTurnTransition;
+
+            // Log merge decision for debugging
+            if (trustClientCards && !justDrewForThisPlayer && !isStaleStateForActivePlayer) {
+              // Check if we're about to potentially overwrite server state with stale client data
+              const serverHandCount = serverPlayerAfterDraw.hand?.length || 0;
+              const clientHandCount = clientPlayer.hand?.length || 0;
+              const serverDeckCount = serverPlayerAfterDraw.deck?.length || 0;
+              const clientDeckCount = clientPlayer.deck?.length || 0;
+              if (serverHandCount !== clientHandCount || serverDeckCount !== clientDeckCount) {
+                logger.info(`[Merge] Player ${clientPlayer.id}: server hand=${serverHandCount} deck=${serverDeckCount}, client hand=${clientHandCount} deck=${clientDeckCount}, trust=true, isTurnTransition=${isTurnTransition}, isNewActivePlayer=${isNewActivePlayer}, isDummy=${isDummyPlayer}`);
+              }
+            }
+
+            // Only trust client's card state if:
+            // 1. Client is authoritative (sending player, active player, or dummy player)
+            // 2. We didn't just draw for this player (client state is stale)
+            // 3. This isn't stale phase -1 after draw
+            // 4. For turn transitions (phase=-1), only trust NEW active player's state, preserve server state for all others
+            if (trustClientCards && !justDrewForThisPlayer && !isStaleStateForActivePlayer && (isNewActivePlayer || !isTurnTransition)) {
               // Client is authoritative for their own card state (they just played/moved cards)
+
+              // For boardHistory, use client's version during normal play (they just played a card)
+              // But use server's version during turn transitions (client state might be stale)
+              const useClientHistory = !isTurnTransition && (!serverHasMoreHistory || isNewActivePlayer);
+
               mergedPlayers.push({
                 ...serverPlayerAfterDraw,
                 ...clientPlayer,
@@ -219,12 +279,23 @@ export function handleUpdateState(ws, data) {
                 playerToken: serverPlayerAfterDraw.playerToken,
                 isDummy: serverPlayerAfterDraw.isDummy,
                 isSpectator: serverPlayerAfterDraw.isSpectator,
-                // Use server's boardHistory if it has more data
-                boardHistory: serverHasMoreHistory ? serverPlayerAfterDraw.boardHistory : clientPlayer.boardHistory,
+                // Use client's boardHistory during normal play, server's during turn transitions
+                boardHistory: useClientHistory ? clientPlayer.boardHistory :
+                  (serverPlayerAfterDraw.boardHistory || clientPlayer.boardHistory || []),
               });
             } else {
               // For other players, preserve server's card state (prevent stale client data)
               // Also used when we just drew for this player (client state is stale)
+              // Also used when client sends stale phase -1 after server already processed draw
+              // Also used during turn transitions for all players except the new active player
+
+              // Special case for boardHistory:
+              // - During turn transitions, client's boardHistory might be stale (doesn't know about server-side changes)
+              // - But when NOT in turn transition, client may have just played a card for this player (e.g., dummy)
+              //   In that case, trust client's boardHistory if it's longer
+              const clientHistoryIsLonger = !isTurnTransition && clientPlayer.boardHistory &&
+                clientPlayer.boardHistory.length > (serverPlayerAfterDraw.boardHistory?.length || 0);
+
               mergedPlayers.push({
                 ...serverPlayerAfterDraw,
                 // Only allow client to update specific non-game-state fields
@@ -233,11 +304,16 @@ export function handleUpdateState(ws, data) {
                 isDisconnected: clientPlayer.isDisconnected ?? serverPlayerAfterDraw.isDisconnected,
                 disconnectTimestamp: clientPlayer.disconnectTimestamp ?? serverPlayerAfterDraw.disconnectTimestamp,
                 autoDrawEnabled: clientPlayer.autoDrawEnabled ?? serverPlayerAfterDraw.autoDrawEnabled,
+                // IMPORTANT: Allow client to update score (this is how dummy players get points from scoring)
+                score: clientPlayer.score ?? serverPlayerAfterDraw.score,
                 // CRITICAL: Never let client overwrite other players' card state
                 hand: serverPlayerAfterDraw.hand,
                 deck: serverPlayerAfterDraw.deck,
                 discard: serverPlayerAfterDraw.discard || [],
-                boardHistory: serverHasMoreHistory ? serverPlayerAfterDraw.boardHistory : clientPlayer.boardHistory,
+                // Preserve server's boardHistory during turn transitions (client state is stale)
+                // Otherwise use whichever is longer (client may have just played a card)
+                boardHistory: isTurnTransition ? (serverPlayerAfterDraw.boardHistory || []) :
+                  (clientHistoryIsLonger ? clientPlayer.boardHistory : serverPlayerAfterDraw.boardHistory || []),
                 // Preserve server-specific fields
                 playerToken: serverPlayerAfterDraw.playerToken,
                 isDummy: serverPlayerAfterDraw.isDummy,
@@ -269,6 +345,27 @@ export function handleUpdateState(ws, data) {
       associateClientWithGame(ws, gameIdToUpdate);
       ws.gameId = gameIdToUpdate;
       ws.playerId = assignedPlayerId ?? 1; // Default to host if not assigned
+
+      // Log board and hand state changes for the active player
+      const activePlayer = existingGameState.players.find((p: any) => p.id === existingGameState.activePlayerId);
+      if (activePlayer) {
+        // Count cards on board owned by this player
+        let cardsOnBoard = 0;
+        const boardCards: string[] = [];
+        existingGameState.board?.forEach((row: any[]) => {
+          row.forEach((cell: any) => {
+            if (cell.card?.ownerId === activePlayer.id) {
+              cardsOnBoard++;
+              boardCards.push(`${cell.card.name || cell.card.id}[${cell.card.power}${cell.card.bonusPower ? '+'+cell.card.bonusPower : ''}]`);
+            }
+          });
+        });
+        logger.info(`[BoardState] Player ${activePlayer.id} (${activePlayer.name}): ${cardsOnBoard} cards on board, ${activePlayer.hand?.length || 0} in hand, ${activePlayer.deck?.length || 0} in deck`);
+        if (boardCards.length > 0) {
+          logger.info(`[BoardState] Board cards: [${boardCards.join(', ')}]`);
+        }
+      }
+
       broadcastToGame(gameIdToUpdate, existingGameState);
       logger.info(`State updated for game ${gameIdToUpdate}, playerId=${ws.playerId}`);
     } else {

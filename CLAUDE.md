@@ -138,7 +138,7 @@ Before commit **MANDATORY**:
 │   │   ├── visualEffects.ts      # export function handleTriggerHighlight(ws, data), export function handleTriggerNoTarget(ws, data), export function handleTriggerFloatingText(ws, data), export function handleTriggerFloatingTextBatch(ws, data)
 │   │   ├── deckData.ts           # export function handleUpdateDeckData(ws, data)
 │   │   ├── playerSettings.ts     # export function handleUpdatePlayerName(ws, data), export function handleChangePlayerColor(ws, data), export function handleUpdatePlayerScore(ws, data), export function handleChangePlayerDeck(ws, data), export function handleLoadCustomDeck(ws, data), export function handleSetDummyPlayerCount(ws, data), export function handleLogGameAction(ws, data), export function handleGetGameLogs(ws, data)
-│   │   └── phaseManagement.ts    # export function handleToggleAutoAbilities(ws, data), export function handleNextPhase(ws, data), export function handlePrevPhase(ws, data), export function handleSetPhase(ws, data), export function performDrawPhase(gameState), export function handleToggleAutoDraw(ws, data), export function handleToggleActivePlayer(ws, data)
+│   │   └── phaseManagement.ts    # export function handleToggleAutoAbilities(ws, data), export function handleNextPhase(ws, data), export function handlePrevPhase(ws, data), export function handleSetPhase(ws, data), export function performDrawPhase(gameState), export function handleToggleAutoDraw(ws, data), export function handleToggleActivePlayer(ws, data), export function handleStartNextRound(ws, data), export function handleStartNewMatch(ws, data), includes getRoundVictoryThreshold(round), checkRoundEnd(gameState), endRound(gameState)
 │   ├── utils/                    # Server utilities (4 files)
 │   │   ├── logger.ts             # export const logger: Logger (info, warn, error, debug methods)
 │   │   ├── config.ts             # export const CONFIG: {MAX_PLAYERS, MAX_ACTIVE_GAMES, MAX_MESSAGE_SIZE, MAX_GAME_STATE_SIZE, MAX_STRING_LENGTH, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW, INACTIVITY_TIMEOUT, GAME_CLEANUP_DELAY, PLAYER_DUMMY_DELAY}, export function validateConfig()
@@ -295,3 +295,33 @@ Before commit **MANDATORY**:
 5. **server/handlers/phaseManagement.ts** - Calls `performDrawPhase()` to auto-draw card (line ~332)
 6. **server/handlers/phaseManagement.ts** - `performDrawPhase()` sets phase to 0 (Setup) after draw (line ~201)
 7. **server/services/websocket.ts** - `broadcastToGame(gameId, gameState)` with updated state
+
+### Round Management Flow (Server-Side)
+1. **server/handlers/phaseManagement.ts** - `performDrawPhase()` transitions to phase 0 (Setup)
+2. **server/handlers/phaseManagement.ts** - `checkRoundEnd(gameState)` checks if round should end:
+   - Only during Setup phase (0)
+   - Only when first player (startingPlayerId) becomes active
+   - Calculates victory threshold: `10 + (roundNumber * 10)` (Round 1: 20, Round 2: 30, etc.)
+   - If any player's score >= threshold, round ends
+3. **server/handlers/phaseManagement.ts** - `endRound(gameState)` determines winners:
+   - Finds player(s) with highest score
+   - Stores in `roundWinners[roundNumber]`
+   - Checks if any player has 2 round wins → sets `gameWinner`
+   - Sets `isRoundEndModalOpen = true`
+4. **client/components/RoundEndModal.tsx** - Displays round results with medal icons
+5. **client/hooks/useGameState.ts** - `closeRoundEndModal()` sends `START_NEXT_ROUND` message
+6. **server/handlers/phaseManagement.ts** - `handleStartNextRound()` processes:
+   - Increments `currentRound` (resets to 1 if game was over)
+   - Resets all player scores to 0
+   - Closes modal (`isRoundEndModalOpen = false`)
+   - Same `startingPlayerId` continues (no rotation)
+   - Cards remain on board (no reset)
+
+### Game Start Flow (Random First Player)
+1. **server/handlers/readyCheck.ts** - All players ready → game starts (line ~135-216)
+2. **server/handlers/readyCheck.ts** - Randomly selects starting player:
+   - Gets all non-disconnected players
+   - `Math.floor(Math.random() * allPlayers.length)` selects index
+   - Sets both `startingPlayerId` and `activePlayerId` to selected player
+   - Triggers Draw phase for starting player (7th card after initial 6)
+

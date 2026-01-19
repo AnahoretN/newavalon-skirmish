@@ -69,6 +69,13 @@ const syncLastPlayed = (board: Board, player: Player) => {
           if (!card) {
             continue
           }
+          // CRITICAL: Only assign LastPlayed status if the card is owned by this player
+          // For dummy players, we check the actual card ownership (ownerId)
+          if (card.ownerId !== player.id) {
+            // Card exists on board but belongs to a different player
+            // Skip this card and continue searching
+            continue
+          }
           if (!card.statuses) {
             card.statuses = []
           }
@@ -308,6 +315,7 @@ export const useGameState = () => {
   const isManualExitRef = useRef<boolean>(false)
   const isJoinAttemptRef = useRef<boolean>(false) // Track if user is trying to join via Join Game modal
   const playerTokenRef = useRef<string | undefined>(undefined)
+  const receivedServerStateRef = useRef<boolean>(false) // Track if we've received server state after connection
 
   const gameStateRef = useRef(gameState)
   useEffect(() => {
@@ -348,8 +356,30 @@ export const useGameState = () => {
    */
   const updateState = useCallback((newStateOrFn: GameState | ((prevState: GameState) => GameState)) => {
     setGameState((prevState) => {
+      // Guard against undefined prevState
+      if (!prevState) {
+        logger.error('[updateState] prevState is undefined, skipping update')
+        return prevState
+      }
+
       // Compute the new state once, using prevState from React for consistency
       const newState = typeof newStateOrFn === 'function' ? newStateOrFn(prevState) : newStateOrFn
+
+      // Guard against undefined newState
+      if (!newState) {
+        logger.error('[updateState] newState is undefined, skipping update')
+        return prevState
+      }
+
+      // IMPORTANT: Don't send UPDATE_STATE until we've received the first server state after connection
+      // EXCEPTION: Allow game creation (prevState.gameId is null, newState.gameId is set)
+      // This prevents stale client state from overwriting fresh server state on reconnection
+      // while still allowing new game creation
+      const isCreatingNewGame = !prevState.gameId && newState.gameId
+      if (!receivedServerStateRef.current && !isCreatingNewGame) {
+        logger.debug('[updateState] Skipping UPDATE_STATE - waiting for server sync')
+        return newState
+      }
 
       // Send WebSocket message with the computed state
       if (ws.current && ws.current.readyState === WebSocket.OPEN) {
@@ -403,6 +433,9 @@ export const useGameState = () => {
     setConnectionStatus('Connecting')
 
     ws.current.onopen = () => {
+      // Reset the server state sync flag - we haven't received server state yet on this connection
+      receivedServerStateRef.current = false
+
       logger.info('WebSocket connection established')
       setConnectionStatus('Connected')
 
@@ -549,19 +582,16 @@ export const useGameState = () => {
             console.warn('Server Error:', data.message)
           }
         } else if (data.type === 'HIGHLIGHT_TRIGGERED') {
-          console.log('[Visual Effects] HIGHLIGHT_TRIGGERED received:', data.highlightData)
           setLatestHighlight(data.highlightData)
         } else if (data.type === 'NO_TARGET_TRIGGERED') {
           setLatestNoTarget({ coords: data.coords, timestamp: data.timestamp })
         } else if (data.type === 'DECK_SELECTION_TRIGGERED') {
-          console.log('[Visual Effects] DECK_SELECTION_TRIGGERED received:', data.deckSelectionData)
           setLatestDeckSelections(prev => [...prev, data.deckSelectionData])
           // Auto-remove after 1 second
           setTimeout(() => {
             setLatestDeckSelections(prev => prev.filter(ds => ds.timestamp !== data.deckSelectionData.timestamp))
           }, 1000)
         } else if (data.type === 'HAND_CARD_SELECTION_TRIGGERED') {
-          console.log('[Visual Effects] HAND_CARD_SELECTION_TRIGGERED received:', data.handCardSelectionData)
           setLatestHandCardSelections(prev => [...prev, data.handCardSelectionData])
           // Auto-remove after 1 second
           setTimeout(() => {
@@ -589,7 +619,6 @@ export const useGameState = () => {
           // Receive valid targets from other players
           // Ignore targets from ourselves to avoid overwriting our local state
           if (data.playerId !== localPlayerIdRef.current) {
-            console.log('[Visual Effects] SYNC_VALID_TARGETS received from player', data.playerId, ':', data)
             setRemoteValidTargets({
               playerId: data.playerId,
               validHandTargets: data.validHandTargets || [],
@@ -604,6 +633,12 @@ export const useGameState = () => {
           // Only update gameState if it's a valid game state (no type, but has required properties)
           // Sync card images from database (important for tokens after reconnection)
           const syncedData = syncGameStateImages(data)
+
+          // Mark that we've received server state - now safe to send updates
+          if (!receivedServerStateRef.current) {
+            receivedServerStateRef.current = true
+            logger.info('[ServerSync] Received first server state - client now synced with server')
+          }
 
           // IMPORTANT: Prevent phase flicker by validating phase transitions
           // Only ignore delayed updates if we're NOT in scoring step OR if this is a forced sync
@@ -829,6 +864,8 @@ export const useGameState = () => {
       gameId: newGameId,
       players: [createNewPlayer(1)],
     }
+    // Mark that we're creating a new game - client is the authority here
+    receivedServerStateRef.current = true
     updateState(initialState)
     // Wait for server to process UPDATE_STATE and assign playerId before sending other messages
     setTimeout(() => {
@@ -873,7 +910,7 @@ export const useGameState = () => {
 
   }, [createInitialState, connectWebSocket])
 
-  // ... (startReadyCheck, cancelReadyCheck, playerReady, assignTeams, setGameMode, setGamePrivacy, syncGame, resetGame, setActiveGridSize, setDummyPlayerCount methods kept as is) ...
+  // ... (startReadyCheck, cancelReadyCheck, playerReady, assignTeams, setGameMode, setGamePrivacy, syncGame, setActiveGridSize, setDummyPlayerCount methods kept as is) ...
   const startReadyCheck = useCallback(() => {
     if (ws.current?.readyState === WebSocket.OPEN && gameStateRef.current.gameId) {
       ws.current.send(JSON.stringify({ type: 'START_READY_CHECK', gameId: gameStateRef.current.gameId }))
@@ -950,100 +987,6 @@ export const useGameState = () => {
       setGameState(refreshedState)
     }
   }, [])
-
-  const resetGame = useCallback(() => {
-    updateState(currentState => {
-      if (localPlayerIdRef.current !== 1) {
-        return currentState
-      }
-
-      // Step 1: Collect ALL cards from hands, discard piles, and board
-      const allCards: Card[] = []
-
-      // Cards from hands and discard
-      currentState.players.forEach(player => {
-        player.hand.forEach(card => allCards.push(card))
-        player.discard.forEach(card => allCards.push(card))
-        if (player.announcedCard) {
-          allCards.push(player.announcedCard)
-        }
-      })
-
-      // Cards from the board
-      currentState.board.forEach(row => {
-        row.forEach(cell => {
-          if (cell.card) {
-            allCards.push(cell.card)
-          }
-        })
-      })
-
-      // Step 2: Reset card properties to base state (remove temporary effects)
-      const resetCard = (card: Card): Card => ({
-        ...card,
-        powerModifier: undefined,
-        bonusPower: undefined,
-        statuses: [],
-        enteredThisTurn: undefined,
-        isFaceDown: undefined,
-        revealedTo: undefined,
-      })
-
-      const resetCards = allCards.map(resetCard)
-
-      // Step 3: Shuffle and distribute cards to their original owners
-      const shuffledCards = shuffleDeck(resetCards)
-
-      // Group cards by ownerId
-      const cardsByOwner = new Map<number, Card[]>()
-      shuffledCards.forEach(card => {
-        const ownerId = card.ownerId ?? 1
-        if (!cardsByOwner.has(ownerId)) {
-          cardsByOwner.set(ownerId, [])
-        }
-        cardsByOwner.get(ownerId)!.push(card)
-      })
-
-      // Step 4: Create new player states with restored decks
-      const newPlayers = currentState.players.map(player => {
-        const playerCards = cardsByOwner.get(player.id) || []
-        return {
-          ...player,
-          hand: [],
-          deck: playerCards,
-          discard: [],
-          announcedCard: null,
-          score: 0,
-          isReady: false,
-          boardHistory: [],
-        }
-      })
-
-      return {
-        ...currentState,
-        players: newPlayers,
-        board: createInitialBoard(),
-        isGameStarted: false,
-        isReadyCheckActive: false,
-        revealRequests: [],
-        activePlayerId: null,
-        startingPlayerId: null,
-        currentPhase: 0,
-        isScoringStep: false,
-        currentRound: 1,
-        turnNumber: 1,
-        roundEndTriggered: false,
-        roundWinners: {},
-        gameWinner: null,
-        isRoundEndModalOpen: false,
-        floatingTexts: [],
-        highlights: [],
-        deckSelections: [],
-        handCardSelections: [],
-      }
-    })
-  }, [updateState])
-
 
   const setActiveGridSize = useCallback((size: GridSize) => {
     updateState(currentState => {
@@ -1664,35 +1607,10 @@ export const useGameState = () => {
       })
     }
 
-    // Check for round/match victory when returning to starting player
+    // New turn starting - clear auto-draw tracking and increment turn number
     if (newState.startingPlayerId !== undefined && nextPlayerId === newState.startingPlayerId) {
-      const currentThreshold = (newState.currentRound * 10) + 10
-      const isFinalRoundLimit = newState.currentRound === 5 && newState.turnNumber >= 10
-      let maxScore = -Infinity
-      newState.players.forEach(p => {
-        if (p.score > maxScore) {
-          maxScore = p.score
-        }
-      })
-      const thresholdMet = maxScore >= currentThreshold
-
-      if (thresholdMet || isFinalRoundLimit) {
-        const winners = newState.players.filter(p => p.score === maxScore).map(p => p.id)
-        newState.roundWinners[newState.currentRound] = winners
-        const allWins = Object.values(newState.roundWinners).flat()
-        const winCounts = allWins.reduce((acc, id) => {
-          acc[id] = (acc[id] || 0) + 1; return acc
-        }, {} as Record<number, number>)
-        const gameWinners = Object.keys(winCounts).filter(id => winCounts[Number(id)] >= 2).map(id => Number(id))
-        if (gameWinners.length > 0) {
-          newState.gameWinner = gameWinners[0]
-        }
-        newState.isRoundEndModalOpen = true
-      } else {
-        // New turn starting - clear auto-draw tracking and increment turn number
-        newState.turnNumber += 1
-        newState.autoDrawnPlayers = []
-      }
+      newState.turnNumber += 1
+      newState.autoDrawnPlayers = []
     }
 
     // Clear enteredThisTurn flags
@@ -1829,19 +1747,18 @@ export const useGameState = () => {
     })
   }, [updateState])
 
-  const confirmRoundEnd = useCallback(() => {
-    updateState(currentState => {
-      const newState: GameState = deepCloneState(currentState)
-      newState.isRoundEndModalOpen = false
-      newState.players.forEach(p => p.score = 0)
-      newState.currentRound += 1
-      newState.roundEndTriggered = false
-      newState.turnNumber = 1
-      newState.gameWinner = null
-      newState.autoDrawnPlayers = [] // Clear auto-draw tracking for new round
-      return newState
-    })
-  }, [updateState])
+  /**
+   * closeRoundEndModal - Close the round end modal and start next round
+   * Sends START_NEXT_ROUND message to server which handles score reset and round increment
+   */
+  const closeRoundEndModal = useCallback(() => {
+    if (ws.current?.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify({
+        type: 'START_NEXT_ROUND',
+        gameId: gameStateRef.current.gameId,
+      }))
+    }
+  }, [])
 
   /**
    * moveItem - Move a dragged item to a target location
@@ -2032,7 +1949,7 @@ export const useGameState = () => {
           // IMPORTANT: Verify the card at the index matches the expected ID
           // This prevents duplicate removals when multiple players target the same card
           const cardAtIndex = player.hand[item.cardIndex]
-          if (cardAtIndex && cardAtIndex.id === item.card.id) {
+          if (cardAtIndex && cardAtIndex.id === item.id) {
             player.hand.splice(item.cardIndex, 1)
           } else {
             // Card at index doesn't match expected ID - it was likely already removed by another player
@@ -2193,6 +2110,8 @@ export const useGameState = () => {
         }
       } else if (target.target === 'board' && target.boardCoords) {
         if (newState.board[target.boardCoords.row][target.boardCoords.col].card === null) {
+          // CRITICAL: Only set ownerId if it's still undefined
+          // This preserves the correct owner set earlier (e.g., for dummy players)
           if (cardToMove.ownerId === undefined && localPlayerIdRef.current !== null) {
             const currentPlayer = newState.players.find(p => p.id === localPlayerIdRef.current)
             if (currentPlayer) {
@@ -2431,8 +2350,6 @@ export const useGameState = () => {
   const triggerHighlight = useCallback((highlightData: Omit<HighlightData, 'timestamp'>) => {
     const fullHighlightData: HighlightData = { ...highlightData, timestamp: Date.now() }
 
-    console.log('[Highlight] triggerHighlight called:', { highlightData: fullHighlightData, gameId: gameStateRef.current.gameId, wsReady: ws.current?.readyState === WebSocket.OPEN })
-
     // Immediately update local state so the acting player sees the effect without waiting for round-trip
     setLatestHighlight(fullHighlightData)
 
@@ -2665,16 +2582,13 @@ export const useGameState = () => {
 
   // ... (swapCards, transferStatus, transferAllCounters, recoverDiscardedCard, spawnToken, scoreLine, scoreDiagonal kept as is) ...
   const swapCards = useCallback((coords1: {row: number, col: number}, coords2: {row: number, col: number}, removeReadyStatusFromCoords?: {row: number, col: number}) => {
-    console.log('[swapCards] Called with coords1:', coords1, 'coords2:', coords2, 'removeReadyStatusFromCoords:', removeReadyStatusFromCoords)
     updateState(currentState => {
       if (!currentState.isGameStarted) {
-        console.log('[swapCards] Game not started, returning current state')
         return currentState
       }
       const newState: GameState = deepCloneState(currentState)
       const card1 = newState.board[coords1.row][coords1.col].card
       const card2 = newState.board[coords2.row][coords2.col].card
-      console.log('[swapCards] Swapping card1:', card1?.name, 'with card2:', card2?.name)
 
       // Perform swap
       newState.board[coords1.row][coords1.col].card = card2
@@ -2684,14 +2598,12 @@ export const useGameState = () => {
       if (removeReadyStatusFromCoords) {
         const targetCard = newState.board[removeReadyStatusFromCoords.row][removeReadyStatusFromCoords.col].card
         if (targetCard && targetCard.statuses) {
-          console.log('[swapCards] Removing ready statuses from', targetCard.name, 'at', removeReadyStatusFromCoords)
           // Remove readyDeploy/readySetup/readyCommit statuses
           targetCard.statuses = targetCard.statuses.filter(s => s.type !== 'readyDeploy' && s.type !== 'readySetup' && s.type !== 'readyCommit')
         }
       }
 
       newState.board = recalculateBoardStatuses(newState)
-      console.log('[swapCards] Swap complete, returning new state')
       return newState
     })
   }, [updateState])
@@ -2999,7 +2911,6 @@ export const useGameState = () => {
     respondToRevealRequest,
     syncGame,
     removeRevealedStatus,
-    resetGame,
     toggleActivePlayer,
     toggleAutoDraw,
     forceReconnect,
@@ -3023,7 +2934,7 @@ export const useGameState = () => {
     resurrectDiscardedCard,
     spawnToken,
     scoreLine,
-    confirmRoundEnd,
+    closeRoundEndModal,
     resetDeployStatus,
     scoreDiagonal,
     removeStatusByType,

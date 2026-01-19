@@ -13,11 +13,12 @@ const ROUND_WIN_MEDAL_URL = 'https://res.cloudinary.com/dxxh6meej/image/upload/v
 
 interface RoundEndModalProps {
     gameState: GameState;
-    onConfirm: () => void;
+    onConfirm: () => void; // Start next round
+    onContinueGame: () => void; // Start new match after game over
     onExit: () => void;
 }
 
-export const RoundEndModal: React.FC<RoundEndModalProps> = ({ gameState, onConfirm, onExit }) => {
+export const RoundEndModal: React.FC<RoundEndModalProps> = ({ gameState, onConfirm, onContinueGame, onExit }) => {
   const { t } = useLanguage()
 
   if (!gameState.isRoundEndModalOpen) {
@@ -140,7 +141,7 @@ export const RoundEndModal: React.FC<RoundEndModalProps> = ({ gameState, onConfi
                 {t('returnToMenu')}
               </button>
               <button
-                onClick={onConfirm}
+                onClick={onContinueGame}
                 className="flex-1 bg-green-800 hover:bg-green-700 text-white font-bold py-2 px-4 rounded border border-green-600 text-sm transition-colors"
               >
                 {t('continueGame')}

@@ -947,6 +947,7 @@ export const useAppAbilities = ({
           nextPlayerId = sortedPlayers[nextIndex].id
         }
         newState.activePlayerId = nextPlayerId
+
         return newState
       })
       setAbilityMode(null)

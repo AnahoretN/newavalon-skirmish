@@ -8,6 +8,112 @@ import { getGameState } from '../services/gameState.js';
 import { broadcastToGame } from '../services/websocket.js';
 
 /**
+ * Calculate the victory point threshold for a given round
+ * Formula: 10 + (roundNumber * 10)
+ * Round 1: 20, Round 2: 30, Round 3: 40, etc.
+ */
+export function getRoundVictoryThreshold(round: number): number {
+  return 10 + (round * 10);
+}
+
+/**
+ * Check if the round should end based on player scores
+ * Called ONLY when the first player (startingPlayerId) enters Setup phase
+ * or when the starting player is deselected (ending their turn)
+ * @param gameState - The current game state
+ * @param isDeselectCheck - Whether this check is triggered by deselecting the starting player
+ * @returns true if round should end, false otherwise
+ */
+export function checkRoundEnd(gameState: any, isDeselectCheck = false): boolean {
+  // Calculate the victory threshold for current round
+  const threshold = getRoundVictoryThreshold(gameState.currentRound);
+  const maxScore = Math.max(...gameState.players.map((p: any) => p.score || 0));
+  const scores = gameState.players.map((p: any) => `P${p.id}:${p.score}`).join(', ');
+
+  // Log the check attempt with all relevant info
+  logger.info(`[RoundCheck] ========== ROUND CHECK ==========`);
+  logger.info(`[RoundCheck] Round: ${gameState.currentRound}, Threshold: ${threshold}`);
+  logger.info(`[RoundCheck] Phase: ${gameState.currentPhase}, activePlayerId: ${gameState.activePlayerId}, startingPlayerId: ${gameState.startingPlayerId}, isDeselectCheck: ${isDeselectCheck}`);
+  logger.info(`[RoundCheck] Scores: [${scores}], Max: ${maxScore}`);
+  logger.info(`[RoundCheck] isGameStarted: ${gameState.isGameStarted}, isRoundEndModalOpen: ${gameState.isRoundEndModalOpen}`);
+
+  // Only check if game has started
+  if (!gameState.isGameStarted) {
+    logger.info(`[RoundCheck] ❌ SKIP: Game not started`);
+    return false;
+  }
+
+  // Don't check if round end modal is already open
+  if (gameState.isRoundEndModalOpen) {
+    logger.info(`[RoundCheck] ❌ SKIP: Modal already open`);
+    return false;
+  }
+
+  // Only check during Setup phase (0) when the starting player becomes active
+  // This ensures the round is checked exactly once per round cycle
+  if (gameState.currentPhase !== 0) {
+    logger.info(`[RoundCheck] ❌ SKIP: Wrong phase (${gameState.currentPhase}), expected 0`);
+    return false;
+  }
+
+  // Only check if the starting player is the active player, unless this is a deselect check
+  // This prevents checking when other players are in their turns
+  if (!isDeselectCheck && gameState.activePlayerId !== gameState.startingPlayerId) {
+    logger.info(`[RoundCheck] ❌ SKIP: activePlayerId (${gameState.activePlayerId}) != startingPlayerId (${gameState.startingPlayerId})`);
+    return false;
+  }
+
+  // Check if any player has reached the threshold
+  if (maxScore >= threshold) {
+    logger.info(`[RoundCheck] ✅ ROUND ${gameState.currentRound} ENDING - max score ${maxScore} >= threshold ${threshold}`);
+    return true;
+  }
+
+  logger.info(`[RoundCheck] ❌ Round ${gameState.currentRound} continues - max score ${maxScore} < threshold ${threshold}`);
+  return false;
+}
+
+/**
+ * End the current round and determine winner(s)
+ */
+export function endRound(gameState: any): void {
+  // Find all players with the highest score (who reached or exceeded threshold)
+  const maxScore = Math.max(...gameState.players.map((p: any) => p.score || 0));
+  const roundWinners = gameState.players
+    .filter((p: any) => p.score === maxScore)
+    .map((p: any) => p.id);
+
+  // Store winners for this round
+  if (!gameState.roundWinners) {
+    gameState.roundWinners = {};
+  }
+  gameState.roundWinners[gameState.currentRound] = roundWinners;
+
+  // Check for game winner (first to 2 round wins)
+  const totalWins: Record<number, number> = {};
+  Object.values(gameState.roundWinners).forEach((winners: any) => {
+    (winners as number[]).forEach((winnerId: number) => {
+      totalWins[winnerId] = (totalWins[winnerId] || 0) + 1;
+    });
+  });
+
+  // Check if anyone has won 2 rounds
+  for (const [playerId, winCount] of Object.entries(totalWins)) {
+    if (winCount >= 2) {
+      gameState.gameWinner = parseInt(playerId, 10);
+      logger.info(`[RoundEnd] Player ${playerId} wins the match with ${winCount} round wins!`);
+      break;
+    }
+  }
+
+  // Mark round as triggered and open modal
+  gameState.roundEndTriggered = true;
+  gameState.isRoundEndModalOpen = true;
+
+  logger.info(`[RoundEnd] Round ${gameState.currentRound} ended. Winners: ${roundWinners.join(', ')}`);
+}
+
+/**
  * Handle TOGGLE_AUTO_ABILITIES message
  * Toggles whether auto-abilities are enabled for the game
  */
@@ -111,6 +217,17 @@ export function handleToggleActivePlayer(ws, data) {
     if (previousActivePlayerId === playerId) {
       gameState.activePlayerId = undefined;
       logger.info(`[ToggleActivePlayer] ❌ DESELECTING player ${playerId}`);
+
+      // Check for round end when deselecting the starting player during Setup phase
+      // This handles the case where the starting player is already active and players
+      // are deselecting to end their turn (completing a round cycle)
+      if (playerId === gameState.startingPlayerId && gameState.currentPhase === 0) {
+        logger.info(`[ToggleActivePlayer] Deselecting starting player during Setup phase - checking round end`);
+        if (checkRoundEnd(gameState, true)) {
+          logger.info(`[ToggleActivePlayer] ========== ROUND END TRIGGERED (on deselect of starting player) ==========`);
+          endRound(gameState);
+        }
+      }
     } else {
       gameState.activePlayerId = playerId;
       logger.info(`[ToggleActivePlayer] ✅ SELECTING player ${playerId} (previous was ${previousActivePlayerId})`);
@@ -178,9 +295,12 @@ export function performDrawPhase(gameState: any): void {
   if (shouldDraw) {
     // Draw exactly 1 card from top of deck
     const cardToDraw = activePlayer.deck[0];
+    const cardName = cardToDraw?.name || cardToDraw?.id || 'Unknown';
+    const cardPower = cardToDraw?.power ?? 0;
     activePlayer.deck.splice(0, 1);
     activePlayer.hand.push(cardToDraw);
-    logger.info(`[DrawPhase] ✅ Drew 1 card for player ${activePlayer.id}. New hand: ${activePlayer.hand.length}, deck: ${activePlayer.deck.length}`);
+    logger.info(`[DrawPhase] ✅ Player ${activePlayer.id} (${activePlayer.name}) DREW [${cardName}] (Power: ${cardPower})`);
+    logger.info(`[DrawPhase] Hand size: ${activePlayer.hand.length}, Deck remaining: ${activePlayer.deck.length}`);
   } else {
     logger.info(`[DrawPhase] ❌ Auto-draw DISABLED for player ${activePlayer.id} - skipping draw`);
   }
@@ -188,6 +308,16 @@ export function performDrawPhase(gameState: any): void {
   // Transition to Setup phase
   gameState.currentPhase = 0;
   logger.info(`[DrawPhase] ========== END DRAW PHASE (phase now 0) ==========`);
+
+  // Check for round end when entering Setup phase
+  // This check happens after every draw phase, so when first player's turn comes around
+  // and they enter Setup phase with phase=0, we check if round should end
+  if (checkRoundEnd(gameState)) {
+    logger.info(`[DrawPhase] ========== ROUND END TRIGGERED ==========`);
+    endRound(gameState);
+  } else {
+    logger.info(`[DrawPhase] ========== ROUND CONTINUES ==========`);
+  }
 }
 
 /**
@@ -219,10 +349,11 @@ export function handleNextPhase(ws, data) {
     const currentPhase = gameState.currentPhase || 0;
 
     // Advance to next phase, wrapping around
-    gameState.currentPhase = (currentPhase + 1) % 4;
+    const nextPhase = (currentPhase + 1) % 4;
+    gameState.currentPhase = nextPhase;
 
     broadcastToGame(gameId, gameState);
-    logger.info(`Phase advanced to ${gameState.currentPhase} in game ${gameId}`);
+    logger.info(`[NextPhase] Phase advanced from ${currentPhase} to ${nextPhase} in game ${gameId}, activePlayerId: ${gameState.activePlayerId}`);
   } catch (error) {
     logger.error('Failed to advance phase:', error);
   }
@@ -257,10 +388,11 @@ export function handlePrevPhase(ws, data) {
     const currentPhase = gameState.currentPhase || 0;
 
     // Go to previous phase, wrapping around
-    gameState.currentPhase = (currentPhase - 1 + 4) % 4;
+    const prevPhase = (currentPhase - 1 + 4) % 4;
+    gameState.currentPhase = prevPhase;
 
     broadcastToGame(gameId, gameState);
-    logger.info(`Phase retreated to ${gameState.currentPhase} in game ${gameId}`);
+    logger.info(`[PrevPhase] Phase retreated from ${currentPhase} to ${prevPhase} in game ${gameId}, activePlayerId: ${gameState.activePlayerId}`);
   } catch (error) {
     logger.error('Failed to retreat phase:', error);
   }
@@ -323,3 +455,109 @@ export function handleSetPhase(ws, data) {
     logger.error('Failed to set phase:', error);
   }
 }
+
+/**
+ * Handle START_NEXT_ROUND message
+ * Starts the next round after round end modal is closed
+ * Resets scores to 0, increments round number, closes modal
+ */
+export function handleStartNextRound(ws, data) {
+  try {
+    const { gameId } = data;
+    const gameState = getGameState(gameId);
+
+    if (!gameState) {
+      ws.send(JSON.stringify({
+        type: 'ERROR',
+        message: 'Game not found'
+      }));
+      return;
+    }
+
+    if (!gameState.isGameStarted) {
+      ws.send(JSON.stringify({
+        type: 'ERROR',
+        message: 'Game has not started'
+      }));
+      return;
+    }
+
+    logger.info(`[StartNextRound] Starting next round for game ${gameId}`);
+
+    // If game has a winner, this is a "Continue Game" action - reset for new match
+    if (gameState.gameWinner !== null) {
+      logger.info(`[StartNextRound] Game over - starting new match`);
+      // Reset for new match
+      gameState.currentRound = 1;
+      gameState.turnNumber = 1;
+      gameState.roundWinners = {};
+      gameState.gameWinner = null;
+      gameState.roundEndTriggered = false;
+    } else {
+      // Starting next round of current match
+      gameState.currentRound++;
+    }
+
+    // Reset all player scores to 0
+    gameState.players.forEach((p: any) => {
+      p.score = 0;
+    });
+
+    // Close the modal
+    gameState.isRoundEndModalOpen = false;
+
+    // Keep the same starting player - they continue with their setup phase
+    // Phase stays at 0 (Setup) for the starting player to begin
+
+    logger.info(`[StartNextRound] Round ${gameState.currentRound} started. Scores reset.`);
+
+    broadcastToGame(gameId, gameState);
+  } catch (error) {
+    logger.error('Failed to start next round:', error);
+  }
+}
+
+/**
+ * Handle START_NEW_MATCH message
+ * Resets the entire game state for a new match
+ */
+export function handleStartNewMatch(ws, data) {
+  try {
+    const { gameId } = data;
+    const gameState = getGameState(gameId);
+
+    if (!gameState) {
+      ws.send(JSON.stringify({
+        type: 'ERROR',
+        message: 'Game not found'
+      }));
+      return;
+    }
+
+    logger.info(`[StartNewMatch] Starting new match for game ${gameId}`);
+
+    // Reset all match state
+    gameState.currentRound = 1;
+    gameState.turnNumber = 1;
+    gameState.roundWinners = {};
+    gameState.gameWinner = null;
+    gameState.roundEndTriggered = false;
+    gameState.isRoundEndModalOpen = false;
+
+    // Reset all player scores to 0
+    gameState.players.forEach((p: any) => {
+      p.score = 0;
+    });
+
+    logger.info(`[StartNewMatch] New match started.`);
+
+    broadcastToGame(gameId, gameState);
+  } catch (error) {
+    logger.error('Failed to start new match:', error);
+  }
+}
+
+/**
+ * Handle START_NEW_MATCH message
+ * Resets the entire game state for a new match
+ */

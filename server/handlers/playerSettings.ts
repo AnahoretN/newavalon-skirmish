@@ -129,9 +129,17 @@ export function handleUpdatePlayerScore(ws, data) {
       return;
     }
 
+    const previousScore = player.score || 0;
     player.score = numericScore;
+    const scoreDelta = numericScore - previousScore;
+    const scoreChange = scoreDelta >= 0 ? `+${scoreDelta}` : `${scoreDelta}`;
+    logger.info(`[PlayerScore] Player ${playerId} (${player.name}) score: ${previousScore} → ${numericScore} (${scoreChange}) in game ${gameId}`);
+
+    // Log all players' scores for context
+    const allScores = gameState.players.map((p: any) => `P${p.id}:${p.score}`).join(', ');
+    logger.info(`[PlayerScore] All scores: [${allScores}]`);
+
     broadcastToGame(gameId, gameState);
-    logger.info(`Player ${playerId} score updated to ${numericScore} in game ${gameId}`);
   } catch (error) {
     logger.error('Failed to update player score:', error);
   }

@@ -12,7 +12,6 @@ interface HeaderProps {
   gameId: string | null;
   isGameStarted: boolean;
   onStartGame: () => void;
-  onResetGame: () => void;
   activeGridSize: GridSize;
   onGridSizeChange: (size: GridSize) => void;
   dummyPlayerCount: number;
@@ -451,7 +450,6 @@ const Header = memo<HeaderProps>(({
   gameId,
   isGameStarted,
   onStartGame,
-  onResetGame,
   activeGridSize,
   onGridSizeChange,
   dummyPlayerCount,
@@ -605,19 +603,10 @@ const Header = memo<HeaderProps>(({
           </button>
         </div>
 
-        {/* Right side: Start/New Game + divider + Exit */}
+        {/* Right side: Start Game + divider + Exit */}
         <div className="flex items-center space-x-2">
-          {/* Start/New Game button */}
-          {isGameStarted ? (
-            isHost && (
-              <button
-                onClick={onResetGame}
-                className="bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded text-sm hidden md:block"
-              >
-                {t('newGame')}
-              </button>
-            )
-          ) : (
+          {/* Start Game button */}
+          {!isGameStarted && (
             <button
               onClick={onStartGame}
               disabled={!isHost}
