@@ -97,6 +97,8 @@ export function createGameState(gameId: string, options: GameOptions = {}): Game
     // Visual effects (synced across all clients)
     floatingTexts: [],
     highlights: [],
+    // Server-side auto-draw tracking
+    autoDrawnPlayers: [],
     ...options
   };
 

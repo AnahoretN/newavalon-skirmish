@@ -217,12 +217,12 @@ export interface GameState {
   revealRequests: RevealRequest[];
   activePlayerId: number | null; // Aligned with server and client: null when no active player
   startingPlayerId: number | null; // The ID of the player who started the game (Turn 1 Player 1)
-  currentPhase: number; // 0 to 4 representing the index in TURN_PHASES
+  currentPhase: number; // -1 (hidden Draw phase), 0-3 representing the index in TURN_PHASES (Setup=0, Main=1, Commit=2, Scoring=3)
   isScoringStep: boolean; // True when waiting for the active player to score a line after Commit phase
 
   // Auto-abilities settings
   autoAbilitiesEnabled: boolean; // If true, auto-activate card abilities
-  autoDrawEnabled: boolean; // If true, auto-draw at start of Setup phase
+  autoDrawEnabled: boolean; // If true, auto-draw at start of turn (via Draw phase)
   preserveDeployAbilities: boolean; // If true, deploy abilities remain available after auto-transition to Main
 
   // Round Logic
@@ -236,6 +236,9 @@ export interface GameState {
   // Visual Effects (client-side only, synchronized via gameState)
   deckSelections?: DeckSelectionData[]; // Deck selection effects
   handCardSelections?: HandCardSelectionData[]; // Hand card selection effects
+
+  // Server-side auto-draw tracking for Setup phase
+  autoDrawnPlayers?: number[]; // Player IDs who have already auto-drawn this Setup phase
 }
 
 /**

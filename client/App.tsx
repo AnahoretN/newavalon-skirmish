@@ -356,8 +356,8 @@ const App = memo(function App() {
     commandContext,
     setCommandContext,
     setViewingDiscard,
-    triggerNoTarget,
     setPlayMode,
+    triggerNoTarget,
     setCounterSelectionData,
     interactionLock,
     onAbilityComplete: () => setAbilityCheckKey(prev => prev + 1),
@@ -420,7 +420,6 @@ const App = memo(function App() {
     localPlayerId,
     handleDrop,
     markAbilityUsed,
-    setAbilityMode,
     requestCardReveal,
     interactionLock,
     setCommandContext, // Passed down for False Orders Step 1 recording

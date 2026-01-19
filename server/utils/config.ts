@@ -12,7 +12,7 @@ export const CONFIG = {
   MAX_GAME_STATE_SIZE: 10 * 1024 * 1024, // 10MB max game state
   MAX_ACTIVE_GAMES: 1000, // Maximum concurrent games
   RATE_LIMIT_WINDOW: 60000, // 1 minute
-  MESSAGE_RATE_LIMIT: 60, // Max messages per minute
+  MESSAGE_RATE_LIMIT: 1000, // Max messages per minute (increased for development)
   MAX_STRING_LENGTH: 1000, // Max string length for user input
   DECKS_FILE_PATH: 'server/content/contentDatabase.json',
   LOGS_DIR: 'logs'

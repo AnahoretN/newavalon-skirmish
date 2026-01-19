@@ -3,6 +3,7 @@ import type { Board, GridSize, DragItem, DropTarget, Card as CardType, PlayerCol
 import { Card } from './Card'
 import { PLAYER_COLORS, FLOATING_TEXT_COLORS, PLAYER_COLOR_RGB } from '@/constants'
 import { hasReadyAbilityInCurrentPhase } from '@/utils/autoAbilities'
+import { calculateGlowColor, rgba } from '@/utils/common'
 
 interface GameBoardProps {
   board: Board;
@@ -220,12 +221,7 @@ const GridCell = memo<{
             const rgb = playerColor && PLAYER_COLOR_RGB[playerColor]
               ? PLAYER_COLOR_RGB[playerColor]
               : { r: 37, g: 99, b: 235 }
-            // Glow color 30% brighter than base color, 50% transparent
-            const glowRgb = {
-              r: Math.min(255, Math.round(rgb.r * 1.3)),
-              g: Math.min(255, Math.round(rgb.g * 1.3)),
-              b: Math.min(255, Math.round(rgb.b * 1.3)),
-            }
+            const glowRgb = calculateGlowColor(rgb)
             // Border color: white, gradient background like card ready ability
             return (
               <div
@@ -233,10 +229,10 @@ const GridCell = memo<{
                 className="absolute inset-0 rounded-md pointer-events-none animate-glow-pulse"
                 style={{
                   zIndex: 50,
-                  boxShadow: `0 0 12px 2px rgba(${glowRgb.r}, ${glowRgb.g}, ${glowRgb.b}, 0.5)`,
+                  boxShadow: `0 0 12px 2px ${rgba(glowRgb, 0.5)}`,
                   border: '3px solid',
                   borderColor: `rgb(255, 255, 255)`,
-                  background: `radial-gradient(circle at center, transparent 20%, rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.5) 100%)`,
+                  background: `radial-gradient(circle at center, transparent 20%, ${rgba(rgb, 0.5)} 100%)`,
                 }}
               />
             )
@@ -332,9 +328,7 @@ export const GameBoard = memo<GameBoardProps>(({
 }) => {
   // Debug: log highlights when they change
   React.useEffect(() => {
-    if (highlights && highlights.length > 0) {
-      console.log('[GameBoard] Received highlights:', highlights.length, highlights)
-    }
+    // Highlights are now handled via GridCell props
   }, [highlights])
 
   const activeBoard = useMemo(() => {

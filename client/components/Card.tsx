@@ -280,10 +280,11 @@ const CardCore: React.FC<CardCoreProps & CardInteractionProps> = memo(({
       setHighlightDismissed(true)
     }
     // Call the parent's onCardClick handler if provided
+    // Note: Hand cards are handled by the parent component's onClick, not here
     if (onCardClick && boardCoords) {
       onCardClick(card, boardCoords)
     }
-  }, [shouldHighlight, localPlayerId, card.ownerId, onCardClick, boardCoords, card])
+  }, [shouldHighlight, localPlayerId, card.ownerId, onCardClick, boardCoords])
 
   // Aggregate statuses by TYPE and PLAYER ID to allow separate icons for different players.
   // Filter out readiness statuses (readyDeploy, readySetup, readyCommit) - they are invisible to players

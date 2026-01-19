@@ -214,7 +214,7 @@ export interface GameState {
   revealRequests: RevealRequest[];
   activePlayerId: number | null; // Aligned with server: null when no active player
   startingPlayerId: number | null; // The ID of the player who started the game (Turn 1 Player 1)
-  currentPhase: number; // 0 to 4 representing the index in TURN_PHASES
+  currentPhase: number; // -1 (hidden Draw phase), 0-3 representing the index in TURN_PHASES (Setup=0, Main=1, Commit=2, Scoring=3)
   isScoringStep: boolean; // True when waiting for the active player to score a line after Commit phase
 
   // Auto-abilities settings
@@ -235,6 +235,9 @@ export interface GameState {
   highlights: HighlightData[]; // Array of cell highlights to display
   deckSelections: DeckSelectionData[]; // Array of deck selection effects to display
   handCardSelections: HandCardSelectionData[]; // Array of hand card selection effects to display
+
+  // Server-side auto-draw tracking for Setup phase
+  autoDrawnPlayers?: number[]; // Player IDs who have already auto-drawn this Setup phase
 
   // Local spectator state (not synced with server)
   localPlayerId: number | null; // The player ID of the local client (null if spectator)

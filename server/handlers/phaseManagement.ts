@@ -88,7 +88,7 @@ export function handleToggleAutoDraw(ws, data) {
 /**
  * Handle TOGGLE_ACTIVE_PLAYER message
  * Sets the active player
- * Note: Auto-draw is handled client-side in the onmessage handler when entering Setup phase
+ * Triggers the hidden Draw phase (-1) which automatically transitions to Setup (0)
  */
 export function handleToggleActivePlayer(ws, data) {
   try {
@@ -104,19 +104,90 @@ export function handleToggleActivePlayer(ws, data) {
     }
 
     const previousActivePlayerId = gameState.activePlayerId;
+    logger.info(`[ToggleActivePlayer] ========== TOGGLE ACTIVE PLAYER ==========`);
+    logger.info(`[ToggleActivePlayer] Previous active: ${previousActivePlayerId}, Clicked: ${playerId}, Current phase: ${gameState.currentPhase}`);
 
     // Toggle: if same player clicked, deselect; otherwise select new player
     if (previousActivePlayerId === playerId) {
       gameState.activePlayerId = undefined;
+      logger.info(`[ToggleActivePlayer] ❌ DESELECTING player ${playerId}`);
     } else {
       gameState.activePlayerId = playerId;
+      logger.info(`[ToggleActivePlayer] ✅ SELECTING player ${playerId} (previous was ${previousActivePlayerId})`);
+
+      // Enter Draw phase (-1) when selecting a new active player
+      // The draw phase will auto-draw a card and transition to Setup (0)
+      gameState.currentPhase = -1;
+      logger.info(`[ToggleActivePlayer] Phase set to -1 (Draw), calling performDrawPhase...`);
+
+      performDrawPhase(gameState);
+
+      logger.info(`[ToggleActivePlayer] After performDrawPhase: phase=${gameState.currentPhase}, activePlayerId=${gameState.activePlayerId}`);
     }
 
     broadcastToGame(gameId, gameState);
-    logger.info(`Active player changed to ${gameState.activePlayerId || 'none'} in game ${gameId}`);
+    logger.info(`[ToggleActivePlayer] Broadcast complete. Active player: ${gameState.activePlayerId || 'none'}, Phase: ${gameState.currentPhase}`);
+    logger.info(`[ToggleActivePlayer] ========== END TOGGLE ACTIVE PLAYER ==========`);
   } catch (error) {
     logger.error('Failed to toggle active player:', error);
   }
+}
+
+/**
+ * Perform the hidden Draw phase
+ * Draws exactly 1 card for the active player and transitions to Setup
+ * Simple rule: draw 1 card from deck to hand when player becomes active
+ */
+export function performDrawPhase(gameState: any): void {
+  logger.info(`[DrawPhase] ========== START DRAW PHASE ==========`);
+  logger.info(`[DrawPhase] activePlayerId=${gameState.activePlayerId}, phase=${gameState.currentPhase}`);
+
+  if (gameState.activePlayerId === null) {
+    logger.info(`[DrawPhase] ❌ No active player, moving to Setup`);
+    gameState.currentPhase = 0;
+    return;
+  }
+
+  const activePlayer = gameState.players.find((p: any) => p.id === gameState.activePlayerId);
+  if (!activePlayer) {
+    logger.warn(`[DrawPhase] ❌ Active player ${gameState.activePlayerId} not found`);
+    gameState.currentPhase = 0;
+    return;
+  }
+
+  logger.info(`[DrawPhase] Player ${activePlayer.id} (${activePlayer.name}): hand=${activePlayer.hand?.length || 0}, deck=${activePlayer.deck?.length || 0}, dummy=${activePlayer.isDummy}, autoDraw=${activePlayer.autoDrawEnabled}`);
+
+  // Check if player has cards to draw
+  if (!activePlayer.deck || activePlayer.deck.length === 0) {
+    logger.info(`[DrawPhase] ❌ Player ${activePlayer.id} has empty deck - skipping draw`);
+    gameState.currentPhase = 0;
+    return;
+  }
+
+  // Determine if auto-draw should happen
+  let shouldDraw = false;
+  if (activePlayer.isDummy) {
+    const hostPlayer = gameState.players.find((p: any) => p.id === 1);
+    shouldDraw = hostPlayer?.autoDrawEnabled === true;
+    logger.info(`[DrawPhase] Dummy player - using host autoDrawEnabled: ${hostPlayer?.autoDrawEnabled}`);
+  } else {
+    shouldDraw = activePlayer.autoDrawEnabled !== false;
+    logger.info(`[DrawPhase] Real player - using own autoDrawEnabled: ${activePlayer.autoDrawEnabled}`);
+  }
+
+  if (shouldDraw) {
+    // Draw exactly 1 card from top of deck
+    const cardToDraw = activePlayer.deck[0];
+    activePlayer.deck.splice(0, 1);
+    activePlayer.hand.push(cardToDraw);
+    logger.info(`[DrawPhase] ✅ Drew 1 card for player ${activePlayer.id}. New hand: ${activePlayer.hand.length}, deck: ${activePlayer.deck.length}`);
+  } else {
+    logger.info(`[DrawPhase] ❌ Auto-draw DISABLED for player ${activePlayer.id} - skipping draw`);
+  }
+
+  // Transition to Setup phase
+  gameState.currentPhase = 0;
+  logger.info(`[DrawPhase] ========== END DRAW PHASE (phase now 0) ==========`);
 }
 
 /**
@@ -198,6 +269,7 @@ export function handlePrevPhase(ws, data) {
 /**
  * Handle SET_PHASE message
  * Sets the turn phase to a specific index
+ * Draw phase (-1) is now an explicit phase that triggers auto-draw
  */
 export function handleSetPhase(ws, data) {
   try {
@@ -230,17 +302,42 @@ export function handleSetPhase(ws, data) {
       return;
     }
 
-    if (numericPhaseIndex < 0 || numericPhaseIndex >= 4) {
+    // Allow phases -1 (Draw) to 3 (Scoring)
+    if (numericPhaseIndex < -1 || numericPhaseIndex >= 4) {
       ws.send(JSON.stringify({
         type: 'ERROR',
-        message: 'Invalid phase index. Must be between 0 and 3'
+        message: 'Invalid phase index. Must be between -1 and 3'
       }));
       return;
     }
 
+    const previousPhase = gameState.currentPhase;
+
+    // Draw phase (-1) triggers auto-draw and transitions to Setup (0)
+    if (numericPhaseIndex === -1) {
+      logger.info(`[SetPhase] Entering Draw Phase (-1) from phase ${previousPhase}`);
+      gameState.currentPhase = -1;
+      performDrawPhase(gameState);
+      // performDrawPhase sets phase to 0 (Setup)
+      broadcastToGame(gameId, gameState);
+      logger.info(`Phase set to ${gameState.currentPhase} in game ${gameId} (after Draw Phase)`);
+      return;
+    }
+
+    // For regular phases (0-3)
     gameState.currentPhase = numericPhaseIndex;
+
+    // If entering Setup from a non-Setup phase (and not from Draw), trigger Draw Phase
+    // But NOT if we're coming from Draw Phase (-1) - this prevents double-draw
+    const isEnteringSetup = numericPhaseIndex === 0 && previousPhase !== 0 && previousPhase !== -1;
+    if (isEnteringSetup) {
+      logger.info(`[SetPhase] Entering Setup (0) from phase ${previousPhase}, triggering Draw Phase`);
+      gameState.currentPhase = -1;
+      performDrawPhase(gameState);
+    }
+
     broadcastToGame(gameId, gameState);
-    logger.info(`Phase set to ${numericPhaseIndex} in game ${gameId}`);
+    logger.info(`Phase set to ${gameState.currentPhase} in game ${gameId}`);
   } catch (error) {
     logger.error('Failed to set phase:', error);
   }

@@ -7,6 +7,7 @@ import { Card as CardComponent } from './Card'
 import { CardTooltipContent } from './Tooltip'
 import { useLanguage } from '@/contexts/LanguageContext'
 import { validateDeckData } from '@/utils/deckValidation'
+import { calculateGlowColor, rgba } from '@/utils/common'
 
 type ContextMenuData =
   | { player: Player }
@@ -301,7 +302,7 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
             <img src={firstPlayerIconUrl} alt="First Player" className="w-6 h-6 drop-shadow-md flex-shrink-0" title="First Player" />
           )}
           {/* Active player checkbox */}
-          <input type="checkbox" checked={isPlayerActive} onChange={() => onToggleActivePlayer(player.id)} disabled={!isLocalPlayer && !player.isDummy} className={`w-6 h-6 text-yellow-400 bg-gray-700 border-2 border-yellow-400 rounded flex-shrink-0 ${!isLocalPlayer && !player.isDummy ? 'cursor-default' : 'cursor-pointer'}`} title="Active Player" />
+          <input type="checkbox" checked={isPlayerActive} onChange={() => onToggleActivePlayer(player.id)} disabled={!canPerformActions} className={`w-6 h-6 text-yellow-400 bg-gray-700 border-2 border-yellow-400 rounded flex-shrink-0 ${!canPerformActions ? 'cursor-not-allowed' : 'cursor-pointer'}`} title="Active Player" />
         </div>
 
         {/* Header: ColorPicker + Name (name takes all available space) */}
@@ -329,13 +330,8 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
                 const rgb = activePlayerColorName && PLAYER_COLOR_RGB[activePlayerColorName]
                   ? PLAYER_COLOR_RGB[activePlayerColorName]
                   : { r: 37, g: 99, b: 235 }
-                const glowRgb = {
-                  r: Math.min(255, Math.round(rgb.r * 1.3)),
-                  g: Math.min(255, Math.round(rgb.g * 1.3)),
-                  b: Math.min(255, Math.round(rgb.b * 1.3)),
-                }
                 const deckHighlightStyle = isDeckSelectableActive ? {
-                  boxShadow: `0 0 12px 2px rgba(${glowRgb.r}, ${glowRgb.g}, ${glowRgb.b}, 0.5)`,
+                  boxShadow: `0 0 12px 2px ${rgba(calculateGlowColor(rgb), 0.5)}`,
                   border: '3px solid rgb(255, 255, 255)',
                 } : {}
 
@@ -360,7 +356,7 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
                         className="absolute inset-0 rounded pointer-events-none animate-glow-pulse"
                         style={{
                           zIndex: 10,
-                          background: `radial-gradient(circle at center, transparent 30%, rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.4) 100%)`,
+                          background: `radial-gradient(circle at center, transparent 30%, ${rgba(rgb, 0.4)} 100%)`,
                         }}
                       />
                     )}
@@ -372,7 +368,7 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
                           zIndex: 15,
                           border: '3px solid',
                           borderColor: `rgb(${selectionRgb.r}, ${selectionRgb.g}, ${selectionRgb.b})`,
-                          background: `radial-gradient(circle at center, transparent 20%, rgba(${selectionRgb.r}, ${selectionRgb.g}, ${selectionRgb.b}, 0.6) 100%)`,
+                          background: `radial-gradient(circle at center, transparent 20%, ${rgba(selectionRgb, 0.6)} 100%)`,
                         }}
                       />
                     )}
@@ -468,11 +464,6 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
                 const rgb = activePlayerColorName && PLAYER_COLOR_RGB[activePlayerColorName]
                   ? PLAYER_COLOR_RGB[activePlayerColorName]
                   : { r: 37, g: 99, b: 235 }
-                const glowRgb = {
-                  r: Math.min(255, Math.round(rgb.r * 1.3)),
-                  g: Math.min(255, Math.round(rgb.g * 1.3)),
-                  b: Math.min(255, Math.round(rgb.b * 1.3)),
-                }
 
                 // Find recent hand card selection for this card (within last 1 second)
                 const now = Date.now()
@@ -482,7 +473,7 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
 
                 // Card container style with highlight if target
                 const cardContainerStyle = isTarget ? {
-                  boxShadow: `0 0 12px 2px rgba(${glowRgb.r}, ${glowRgb.g}, ${glowRgb.b}, 0.5)`,
+                  boxShadow: `0 0 12px 2px ${rgba(calculateGlowColor(rgb), 0.5)}`,
                   border: '3px solid rgb(255, 255, 255)',
                 } : {}
 
@@ -497,7 +488,7 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
                         className="absolute inset-0 rounded pointer-events-none animate-glow-pulse"
                         style={{
                           zIndex: 10,
-                          background: `radial-gradient(circle at center, transparent 30%, rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.4) 100%)`,
+                          background: `radial-gradient(circle at center, transparent 30%, ${rgba(rgb, 0.4)} 100%)`,
                         }}
                       />
                     )}
@@ -509,7 +500,7 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
                           zIndex: 15,
                           border: '3px solid',
                           borderColor: `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`,
-                          background: `radial-gradient(circle at center, transparent 20%, rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.6) 100%)`,
+                          background: `radial-gradient(circle at center, transparent 20%, ${rgba(rgb, 0.6)} 100%)`,
                         }}
                       />
                     )}
@@ -531,7 +522,9 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
                         cardIndex: index
                       })}
                       onDoubleClick={() => onHandCardDoubleClick(player, card, index)}
-                      onClick={() => onCardClick?.(player, card, index)}
+                      onClick={() => {
+                        onCardClick?.(player, card, index)
+                      }}
                       data-hand-card={`${player.id},${index}`}
                       data-interactive="true"
                     >
@@ -627,13 +620,8 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
                   const rgb = activePlayerColorName && PLAYER_COLOR_RGB[activePlayerColorName]
                     ? PLAYER_COLOR_RGB[activePlayerColorName]
                     : { r: 37, g: 99, b: 235 }
-                  const glowRgb = {
-                    r: Math.min(255, Math.round(rgb.r * 1.3)),
-                    g: Math.min(255, Math.round(rgb.g * 1.3)),
-                    b: Math.min(255, Math.round(rgb.b * 1.3)),
-                  }
                   const deckHighlightStyle = isDeckSelectableActive ? {
-                    boxShadow: `0 0 12px 2px rgba(${glowRgb.r}, ${glowRgb.g}, ${glowRgb.b}, 0.5)`,
+                    boxShadow: `0 0 12px 2px ${rgba(calculateGlowColor(rgb), 0.5)}`,
                     border: '3px solid rgb(255, 255, 255)',
                   } : {}
 
@@ -769,11 +757,6 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
               const rgb = activePlayerColorName && PLAYER_COLOR_RGB[activePlayerColorName]
                 ? PLAYER_COLOR_RGB[activePlayerColorName]
                 : { r: 37, g: 99, b: 235 }
-              const glowRgb = {
-                r: Math.min(255, Math.round(rgb.r * 1.3)),
-                g: Math.min(255, Math.round(rgb.g * 1.3)),
-                b: Math.min(255, Math.round(rgb.b * 1.3)),
-              }
 
               // Find recent hand card selection for this card (within last 1 second)
               const now = Date.now()
@@ -783,7 +766,7 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
 
               // Card container style with highlight if target
               const cardHighlightStyle = isTarget ? {
-                boxShadow: `0 0 12px 2px rgba(${glowRgb.r}, ${glowRgb.g}, ${glowRgb.b}, 0.5)`,
+                boxShadow: `0 0 12px 2px ${rgba(calculateGlowColor(rgb), 0.5)}`,
                 border: '3px solid rgb(255, 255, 255)',
               } : {}
 
@@ -812,7 +795,9 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
                     openContextMenu(e, 'handCard', { card, player, cardIndex: index })
                   }}
                   onDoubleClick={() => onHandCardDoubleClick(player, card, index)}
-                  onClick={() => onCardClick?.(player, card, index)}
+                  onClick={() => {
+                    onCardClick?.(player, card, index)
+                  }}
                   onDragOver={(e) => {
                     e.preventDefault()
                     e.stopPropagation()

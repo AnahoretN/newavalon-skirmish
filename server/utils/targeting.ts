@@ -184,11 +184,6 @@ export const calculateValidTargets = (
       tokenType: action.tokenType,
     }
 
-    // Debug logging for Gawain
-    if (action.tokenType === 'Aim' && action.mustBeInLineWithSource) {
-      console.log('[calculateValidTargets] Looking for Aim targets with mustBeInLineWithSource, sourceCoords:', action.sourceCoords, 'actorId:', actorId)
-    }
-
     // Iterate ONLY over active grid bounds (not entire 7x7 board)
     for (let r = minBound; r <= maxBound; r++) {
       for (let c = minBound; c <= maxBound; c++) {
@@ -205,11 +200,6 @@ export const calculateValidTargets = (
           }
         }
       }
-    }
-
-    // Debug logging for Gawain
-    if (action.tokenType === 'Aim' && action.mustBeInLineWithSource) {
-      console.log('[calculateValidTargets] Found', targets.length, 'valid targets for Aim:', targets)
     }
 
     return targets

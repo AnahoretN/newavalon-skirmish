@@ -55,3 +55,52 @@ export const GAME = {
 } as const
 
 export type GridSize = typeof GAME.GRID_SIZES[number]
+
+/**
+ * Color utility functions
+ */
+
+/** RGB color representation */
+export interface RgbColor {
+  r: number
+  g: number
+  b: number
+}
+
+/**
+ * Calculates a brighter version of a color for glow effects.
+ * Multiplies each RGB component by 1.3 and caps at 255.
+ */
+export function calculateGlowColor(rgb: RgbColor): RgbColor {
+  return {
+    r: Math.min(255, Math.round(rgb.r * 1.3)),
+    g: Math.min(255, Math.round(rgb.g * 1.3)),
+    b: Math.min(255, Math.round(rgb.b * 1.3)),
+  }
+}
+
+/**
+ * Creates a CSS rgba color string from RGB values and opacity.
+ */
+export function rgba(rgb: RgbColor, alpha: number): string {
+  return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`
+}
+
+/**
+ * Creates the highlight style object for valid target effects.
+ * Returns both boxShadow and background style properties.
+ */
+export function createHighlightStyle(rgb: RgbColor, opacity: number = 0.5): React.CSSProperties {
+  const glow = calculateGlowColor(rgb)
+  return {
+    boxShadow: `0 0 12px 2px ${rgba(glow, opacity)}`,
+    border: '3px solid rgb(255, 255, 255)',
+  }
+}
+
+/**
+ * Creates the background radial gradient for highlight overlays.
+ */
+export function createHighlightBackground(rgb: RgbColor, innerTransparency: number = 0.3, outerOpacity: number = 0.4): string {
+  return `radial-gradient(circle at center, transparent ${innerTransparency * 100}%, ${rgba(rgb, outerOpacity)} 100%)`
+}

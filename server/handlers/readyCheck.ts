@@ -6,6 +6,7 @@
 import { logger } from '../utils/logger.js';
 import { getGameState } from '../services/gameState.js';
 import { broadcastToGame } from '../services/websocket.js';
+import { performDrawPhase } from './phaseManagement.js';
 
 /**
  * Handle START_READY_CHECK message
@@ -133,8 +134,10 @@ export function handlePlayerReady(ws, data) {
 
     if (allReady && realPlayers.length >= 1) {
       // All players ready - start the game!
+      logger.info(`[ReadyCheck] ========== ALL PLAYERS READY - STARTING GAME ==========`);
       gameState.isReadyCheckActive = false;
       gameState.isGameStarted = true;
+      gameState.autoDrawnPlayers = []; // Clear auto-draw tracking for new game
 
       // Randomly select starting player from ALL players (including dummies)
       const allPlayers = gameState.players.filter(p => !p.isDisconnected);
@@ -142,21 +145,23 @@ export function handlePlayerReady(ws, data) {
       gameState.startingPlayerId = allPlayers[randomIndex].id;
       gameState.activePlayerId = allPlayers[randomIndex].id;
 
+      logger.info(`[ReadyCheck] Starting player: ${gameState.startingPlayerId} (${allPlayers[randomIndex].name}), Active player: ${gameState.activePlayerId}`);
+
       // Draw starting hands for players with auto-draw enabled
       // First player (active) draws 6 cards, others draw 6
-      // Note: The extra card for first turn comes from client-side auto-draw when entering Setup phase
+      // Note: The extra card (7th) for first turn comes from Draw phase
       // For dummy players: check if host (Player 1) has auto-draw enabled
       // For real players: check their own auto-draw setting
       const hostPlayer = gameState.players.find(p => p.id === 1)
       const hostAutoDrawEnabled = hostPlayer?.autoDrawEnabled === true
 
-      logger.info(`Starting hand draw - host autoDrawEnabled: ${hostAutoDrawEnabled}, host exists: ${!!hostPlayer}`)
+      logger.info(`[ReadyCheck] Starting hand draw - host autoDrawEnabled: ${hostAutoDrawEnabled}, host exists: ${!!hostPlayer}`)
 
       for (const player of gameState.players) {
-        logger.info(`Player ${player.id} (dummy: ${player.isDummy}): hand=${player.hand.length}, autoDrawEnabled=${player.autoDrawEnabled}`)
+        logger.info(`[ReadyCheck] BEFORE DRAW - Player ${player.id} (name: ${player.name}, dummy: ${player.isDummy}): hand=${player.hand.length}, deck=${player.deck.length}, autoDrawEnabled=${player.autoDrawEnabled}`)
 
         if (player.hand.length > 0) {
-          logger.info(`Player ${player.id} already has ${player.hand.length} cards in hand - skipping starting hand draw`)
+          logger.info(`[ReadyCheck] Player ${player.id} already has ${player.hand.length} cards in hand - skipping starting hand draw`)
           continue
         }
 
@@ -170,13 +175,13 @@ export function handlePlayerReady(ws, data) {
           shouldDraw = player.autoDrawEnabled !== false
         }
 
-        logger.info(`Player ${player.id} shouldDraw: ${shouldDraw}`)
+        logger.info(`[ReadyCheck] Player ${player.id} shouldDraw starting hand: ${shouldDraw}`)
 
         if (!shouldDraw) {
           continue
         }
 
-        // All players draw 6 cards (first player's extra card comes from client-side auto-draw)
+        // All players draw 6 cards (first player's extra 7th card comes from Draw phase)
         const cardsToDraw = 6
 
         // Draw cards from deck to hand
@@ -186,10 +191,28 @@ export function handlePlayerReady(ws, data) {
           player.hand.push(drawnCard)
         }
 
-        logger.info(`Auto-drew ${cardsToDraw} cards for player ${player.id} (dummy: ${player.isDummy}), hand size is now ${player.hand.length}`);
+        logger.info(`[ReadyCheck] ✅ Drew ${cardsToDraw} cards for player ${player.id} (dummy: ${player.isDummy}). AFTER: hand=${player.hand.length}, deck=${player.deck.length}`);
       }
 
-      logger.info(`All players ready! Starting game ${data.gameId}`);
+      logger.info(`[ReadyCheck] All starting hands drawn. Now triggering Draw phase for starting player ${gameState.activePlayerId}...`);
+
+      // Log state before Draw phase
+      const startingPlayer = gameState.players.find(p => p.id === gameState.activePlayerId);
+      if (startingPlayer) {
+        logger.info(`[ReadyCheck] Starting player state BEFORE Draw phase: hand=${startingPlayer.hand.length}, deck=${startingPlayer.deck.length}`);
+      }
+
+      // Trigger Draw phase for the starting player to give them their 7th card
+      gameState.currentPhase = -1;
+      logger.info(`[ReadyCheck] Phase set to -1, calling performDrawPhase...`);
+      performDrawPhase(gameState);
+
+      // Log state after Draw phase
+      if (startingPlayer) {
+        logger.info(`[ReadyCheck] Starting player state AFTER Draw phase: hand=${startingPlayer.hand.length}, deck=${startingPlayer.deck.length}`);
+      }
+      logger.info(`[ReadyCheck] Phase after Draw phase: ${gameState.currentPhase}`);
+      logger.info(`[ReadyCheck] ========== GAME STARTED ==========`);
     }
 
     broadcastToGame(data.gameId, gameState);

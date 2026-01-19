@@ -559,7 +559,8 @@ const Header = memo<HeaderProps>(({
               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M15 6 L8 12 L15 18 Z" /></svg>
             </button>
             {TURN_PHASES.map((phase, index) => {
-              const isCurrentPhase = currentPhase === index
+              // Treat Draw phase (-1) as Setup (0) for UI display
+              const isCurrentPhase = currentPhase === index || (currentPhase === -1 && index === 0)
               // Get active player's color for current phase highlight
               const activePlayerColor = activePlayerId !== null ? playerColorMap.get(activePlayerId) : undefined
               const colorClasses = activePlayerColor ? PLAYER_COLORS[activePlayerColor as keyof typeof PLAYER_COLORS]?.bg : 'bg-yellow-500'

@@ -138,7 +138,7 @@ Before commit **MANDATORY**:
 │   │   ├── visualEffects.ts      # export function handleTriggerHighlight(ws, data), export function handleTriggerNoTarget(ws, data), export function handleTriggerFloatingText(ws, data), export function handleTriggerFloatingTextBatch(ws, data)
 │   │   ├── deckData.ts           # export function handleUpdateDeckData(ws, data)
 │   │   ├── playerSettings.ts     # export function handleUpdatePlayerName(ws, data), export function handleChangePlayerColor(ws, data), export function handleUpdatePlayerScore(ws, data), export function handleChangePlayerDeck(ws, data), export function handleLoadCustomDeck(ws, data), export function handleSetDummyPlayerCount(ws, data), export function handleLogGameAction(ws, data), export function handleGetGameLogs(ws, data)
-│   │   └── phaseManagement.ts    # export function handleToggleAutoAbilities(ws, data), export function handleNextPhase(ws, data), export function handlePrevPhase(ws, data), export function handleSetPhase(ws, data)
+│   │   └── phaseManagement.ts    # export function handleToggleAutoAbilities(ws, data), export function handleNextPhase(ws, data), export function handlePrevPhase(ws, data), export function handleSetPhase(ws, data), export function performDrawPhase(gameState), export function handleToggleAutoDraw(ws, data), export function handleToggleActivePlayer(ws, data)
 │   ├── utils/                    # Server utilities (4 files)
 │   │   ├── logger.ts             # export const logger: Logger (info, warn, error, debug methods)
 │   │   ├── config.ts             # export const CONFIG: {MAX_PLAYERS, MAX_ACTIVE_GAMES, MAX_MESSAGE_SIZE, MAX_GAME_STATE_SIZE, MAX_STRING_LENGTH, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW, INACTIVITY_TIMEOUT, GAME_CLEANUP_DELAY, PLAYER_DUMMY_DELAY}, export function validateConfig()
@@ -286,3 +286,12 @@ Before commit **MANDATORY**:
 4. **server/handlers/gameManagement.ts** - If game exists: `Object.assign(existingGameState, updatedGameState)` (line 82)
 5. **server/handlers/gameManagement.ts** - If game doesn't exist: `createGameState(gameId, updatedGameState)` + `ws.playerId = 1` (line 88-91)
 6. **server/services/websocket.ts** - `broadcastToGame(gameId, gameState)` to all clients
+
+### Phase Transition Flow (with Draw Phase)
+1. **client/hooks/useGameState.ts** - `nextPhase()` called after scoring (line ~1730)
+2. **client/hooks/useGameState.ts** - `completeTurn()` sets `currentPhase = -1` (Draw Phase) (line ~1725)
+3. **client/hooks/useGameState.ts** - Sends `SET_PHASE` with `phaseIndex: -1` to server (line ~1749)
+4. **server/handlers/phaseManagement.ts** - `handleSetPhase()` receives phaseIndex -1 (line ~329)
+5. **server/handlers/phaseManagement.ts** - Calls `performDrawPhase()` to auto-draw card (line ~332)
+6. **server/handlers/phaseManagement.ts** - `performDrawPhase()` sets phase to 0 (Setup) after draw (line ~201)
+7. **server/services/websocket.ts** - `broadcastToGame(gameId, gameState)` with updated state
