@@ -330,9 +330,10 @@ export function handleUpdateState(ws, data) {
         existingGameState.players = serverPlayersAfterDraw;
       }
 
-      // CRITICAL FIX: Remove cards from hand/deck/discard that exist on the board
-      // This prevents duplicate cards when a non-active player moves a card
-      // (board was updated by Object.assign, but player hand/deck was restored from server state)
+      // CRITICAL FIX: Remove cards from hand/deck/discard that exist on the board or in announced slot
+      // This prevents duplicate cards when:
+      // 1. A non-active player moves a card (board was updated by Object.assign, but player hand/deck was restored)
+      // 2. A command card is played (card moved to announced, but hand/discard may not have been updated by merge)
       const boardCardIds = new Set<string>();
       existingGameState.board?.forEach((row: any[]) => {
         row.forEach((cell: any) => {
@@ -342,19 +343,27 @@ export function handleUpdateState(ws, data) {
         });
       });
 
-      // For each player, remove any cards that are on the board
+      // Collect all announced card IDs
+      const announcedCardIds = new Set<string>();
+      existingGameState.players.forEach((player: any) => {
+        if (player.announcedCard?.id) {
+          announcedCardIds.add(player.announcedCard.id);
+        }
+      });
+
+      // For each player, remove any cards that are on the board or in announced slot
       existingGameState.players.forEach((player: any) => {
         const removeCardsFromList = (list: any[]) => {
           if (!list) return;
           const initialLength = list.length;
-          // Filter out cards that are on the board
+          // Filter out cards that are on the board or in announced slot
           for (let i = list.length - 1; i >= 0; i--) {
-            if (boardCardIds.has(list[i].id)) {
+            if (boardCardIds.has(list[i].id) || announcedCardIds.has(list[i].id)) {
               list.splice(i, 1);
             }
           }
           if (list.length !== initialLength) {
-            logger.info(`[BoardHandSync] Removed ${initialLength - list.length} card(s) from player ${player.id}'s list that were on board`);
+            logger.info(`[BoardHandSync] Removed ${initialLength - list.length} card(s) from player ${player.id}'s list that were on board or announced`);
           }
         };
 

@@ -1007,7 +1007,7 @@ const App = memo(function App() {
     } else if (commandModalCard?.ownerId !== undefined) {
       highlightOwnerId = commandModalCard.ownerId
     } else {
-      highlightOwnerId = activePlayerId ?? 0
+      highlightOwnerId = gameState.activePlayerId ?? 0
     }
 
     // Create a hash of current state to detect changes
