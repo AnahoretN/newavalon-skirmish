@@ -53,6 +53,7 @@ interface PlayerPanelProps {
   handCardSelections?: { playerId: number; cardIndex: number; selectedByPlayerId: number; timestamp: number }[];
   cursorStack?: CursorStackState | null;
   remoteValidTargets?: { playerId: number, validHandTargets: { playerId: number, cardIndex: number }[], isDeckSelectable: boolean } | null;
+  highlightOwnerId?: number; // The owner of the current ability/mode (for correct highlight color)
 }
 
 const ColorPicker: React.FC<{ player: Player, canEditSettings: boolean, selectedColors: Set<PlayerColor>, onColorChange: (c: PlayerColor) => void, compact?: boolean }> = memo(({ player, canEditSettings, selectedColors, onColorChange, compact = false }) => {
@@ -224,6 +225,7 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
   handCardSelections = [],
   cursorStack = null,
   remoteValidTargets = null,
+  highlightOwnerId,
 }) => {
   const { t, resources } = useLanguage()
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -457,9 +459,11 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
                 const isRemoteTarget = remoteValidTargets?.validHandTargets?.some(t => t.playerId === player.id && t.cardIndex === index)
                 const isTarget = isLocalTarget || isRemoteTarget
 
-                // Use active player's color for the selection effect (not the card owner's color)
+                // Use highlightOwnerId for local targets (ability owner's color), fallback to activePlayerId
                 // For remote targets, use the remote player's color
-                const targetPlayerId = isRemoteTarget && remoteValidTargets ? remoteValidTargets.playerId : activePlayerId
+                const targetPlayerId = isRemoteTarget && remoteValidTargets
+                  ? remoteValidTargets.playerId
+                  : (highlightOwnerId ?? activePlayerId)
                 const activePlayerColorName = targetPlayerId !== null && targetPlayerId !== undefined ? playerColorMap.get(targetPlayerId) : null
                 const rgb = activePlayerColorName && PLAYER_COLOR_RGB[activePlayerColorName]
                   ? PLAYER_COLOR_RGB[activePlayerColorName]
@@ -750,9 +754,11 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
               const isRemoteTarget = remoteValidTargets?.validHandTargets?.some(t => t.playerId === player.id && t.cardIndex === index)
               const isTarget = isLocalTarget || isRemoteTarget
 
-              // Use active player's color for the selection effect (not the card owner's color)
+              // Use highlightOwnerId for local targets (ability owner's color), fallback to activePlayerId
               // For remote targets, use the remote player's color
-              const targetPlayerId = isRemoteTarget && remoteValidTargets ? remoteValidTargets.playerId : activePlayerId
+              const targetPlayerId = isRemoteTarget && remoteValidTargets
+                ? remoteValidTargets.playerId
+                : (highlightOwnerId ?? activePlayerId)
               const activePlayerColorName = targetPlayerId !== null && targetPlayerId !== undefined ? playerColorMap.get(targetPlayerId) : null
               const rgb = activePlayerColorName && PLAYER_COLOR_RGB[activePlayerColorName]
                 ? PLAYER_COLOR_RGB[activePlayerColorName]

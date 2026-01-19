@@ -199,6 +199,30 @@ const App = memo(function App() {
   const lastExternalHighlightsTimeRef = useRef<number>(0)
   const isLocalHighlightsOwnerRef = useRef<boolean>(false)
 
+  // Determine the owner of the current mode for highlight color
+  // This is used for both board highlights and hand card selection highlights
+  const highlightOwnerId = useMemo(() => {
+    if (abilityMode?.originalOwnerId !== undefined) {
+      return abilityMode.originalOwnerId
+    }
+    if (abilityMode?.sourceCard?.ownerId !== undefined) {
+      return abilityMode.sourceCard.ownerId
+    }
+    if (cursorStack?.originalOwnerId !== undefined) {
+      return cursorStack.originalOwnerId
+    }
+    if (cursorStack?.sourceCard?.ownerId !== undefined) {
+      return cursorStack.sourceCard.ownerId
+    }
+    if (playMode?.card?.ownerId !== undefined) {
+      return playMode.card.ownerId
+    }
+    if (commandModalCard?.ownerId !== undefined) {
+      return commandModalCard.ownerId
+    }
+    return gameState?.activePlayerId ?? 0
+  }, [abilityMode, cursorStack, playMode, commandModalCard, gameState?.activePlayerId])
+
   // Listen for syncHighlights events from WebSocket
   useEffect(() => {
     const handleSyncHighlights = (e: Event) => {
@@ -2202,6 +2226,7 @@ const App = memo(function App() {
               handCardSelections={latestHandCardSelections}
               cursorStack={cursorStack}
               remoteValidTargets={remoteValidTargets}
+              highlightOwnerId={highlightOwnerId}
             />
           </div>
         )}
@@ -2307,6 +2332,7 @@ const App = memo(function App() {
                     handCardSelections={latestHandCardSelections}
                     cursorStack={cursorStack}
                     remoteValidTargets={remoteValidTargets}
+                    highlightOwnerId={highlightOwnerId}
                   />
                 </div>
               ))}

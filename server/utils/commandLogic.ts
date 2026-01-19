@@ -168,17 +168,16 @@ export const getCommandAction = (
   }
 
   // =========================================================================
-  // FALSE ORDERS - Exploit on opponent, then reveal or stun
+  // FALSE ORDERS - Exploit on any unit, then reveal or stun
   // =========================================================================
   else if (baseId === 'falseorders') {
-    // 1. Common Step: CREATE STACK Exploit (1) on Opponent Unit -> Record Context
+    // 1. Common Step: CREATE STACK Exploit (1) on any Unit -> Record Context
     if (isMain) {
       actions.push({
         type: 'CREATE_STACK',
         tokenType: 'Exploit',
         count: 1,
         sourceCard: card,
-        onlyOpponents: true,
         targetType: 'Unit', // Enforce Unit targeting
         recordContext: true, // Record target to CommandContext
       })

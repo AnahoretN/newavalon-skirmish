@@ -357,6 +357,9 @@ export const useAppAbilities = ({
       }
 
       if (count > 0) {
+        // When setting cursorStack from CREATE_STACK action (not manual drag), clear abilityMode
+        // This prevents stale highlights from previous mode (e.g., False Orders move phase)
+        setAbilityMode(null)
         setCursorStack({
           type: action.tokenType,
           count: count,

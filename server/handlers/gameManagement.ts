@@ -171,6 +171,15 @@ export function handleUpdateState(ws, data) {
       // Save server players AFTER draw (so we have the updated hand/deck)
       const serverPlayersAfterDraw = existingGameState.players;
 
+      // IMPORTANT: Collect announced card IDs from SERVER state BEFORE Object.assign
+      // This is needed to clean up duplicates when command cards move from announced to discard
+      const serverAnnouncedCardIds = new Set<string>();
+      existingGameState.players.forEach((player: any) => {
+        if (player.announcedCard?.id) {
+          serverAnnouncedCardIds.add(player.announcedCard.id);
+        }
+      });
+
       // Now update the game state with client's data (except for hand/deck of drawn player)
       // IMPORTANT: Preserve round end modal state - if modal is open on server, keep it open
       const preserveRoundEndState = existingGameState.isRoundEndModalOpen ||
@@ -343,13 +352,16 @@ export function handleUpdateState(ws, data) {
         });
       });
 
-      // Collect all announced card IDs
-      const announcedCardIds = new Set<string>();
+      // Combine server announced card IDs (collected before Object.assign) with current ones
+      // This ensures we catch cards that were just moved from announced to discard
+      const currentAnnouncedCardIds = new Set<string>();
       existingGameState.players.forEach((player: any) => {
         if (player.announcedCard?.id) {
-          announcedCardIds.add(player.announcedCard.id);
+          currentAnnouncedCardIds.add(player.announcedCard.id);
         }
       });
+      // Merge server and current announced card IDs
+      serverAnnouncedCardIds.forEach(id => currentAnnouncedCardIds.add(id));
 
       // For each player, remove any cards that are on the board or in announced slot
       existingGameState.players.forEach((player: any) => {
@@ -358,7 +370,7 @@ export function handleUpdateState(ws, data) {
           const initialLength = list.length;
           // Filter out cards that are on the board or in announced slot
           for (let i = list.length - 1; i >= 0; i--) {
-            if (boardCardIds.has(list[i].id) || announcedCardIds.has(list[i].id)) {
+            if (boardCardIds.has(list[i].id) || currentAnnouncedCardIds.has(list[i].id)) {
               list.splice(i, 1);
             }
           }
