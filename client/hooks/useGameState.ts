@@ -2159,7 +2159,11 @@ export const useGameState = () => {
               cardToMove.ownerId = target.playerId
               cardToMove.ownerName = player.name
             }
-            player.discard.push(cardToMove)
+            // Check if card already exists in discard to prevent duplicates
+            const alreadyInDiscard = player.discard.some(c => c.id === cardToMove.id)
+            if (!alreadyInDiscard) {
+              player.discard.push(cardToMove)
+            }
           }
         }
       } else if (target.target === 'deck' && target.playerId !== undefined) {

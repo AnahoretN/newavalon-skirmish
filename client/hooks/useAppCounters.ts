@@ -13,6 +13,7 @@ interface UseAppCountersProps {
     onAction: (action: AbilityAction, sourceCoords: { row: number, col: number }) => void;
     cursorStack: CursorStackState | null;
     setCursorStack: React.Dispatch<React.SetStateAction<CursorStackState | null>>;
+    setAbilityMode: React.Dispatch<React.SetStateAction<AbilityAction | null>>;
 }
 
 export const useAppCounters = ({
@@ -26,6 +27,7 @@ export const useAppCounters = ({
   onAction,
   cursorStack,
   setCursorStack,
+  setAbilityMode,
 }: UseAppCountersProps) => {
   const cursorFollowerRef = useRef<HTMLDivElement>(null)
   const mousePos = useRef({ x: 0, y: 0 })
@@ -65,7 +67,12 @@ export const useAppCounters = ({
 
       // Determine who is performing the action (Effective Actor)
       let effectiveActorId = localPlayerId
-      if (cursorStack.sourceCoords && cursorStack.sourceCoords.row >= 0) {
+      // First, try to get actor from originalOwnerId (preserves command card ownership)
+      if (cursorStack.originalOwnerId !== undefined) {
+        effectiveActorId = cursorStack.originalOwnerId
+      } else if (cursorStack.sourceCard?.ownerId) {
+        effectiveActorId = cursorStack.sourceCard.ownerId
+      } else if (cursorStack.sourceCoords && cursorStack.sourceCoords.row >= 0) {
         const { row, col } = cursorStack.sourceCoords
         // Validate bounds before accessing board
         if (
@@ -164,7 +171,7 @@ export const useAppCounters = ({
             handleDrop({
               card: { id: 'stack', deck: 'counter', name: '', imageUrl: '', fallbackImage: '', power: 0, ability: '', types: [] },
               source: 'counter_panel',
-              ownerId: cursorStack.sourceCard?.ownerId, // Use source card owner for status ownership
+              ownerId: cursorStack.originalOwnerId ?? cursorStack.sourceCard?.ownerId, // Use originalOwnerId (command card owner) for status ownership
               statusType: cursorStack.type,
               replaceStatusType: cursorStack.replaceStatus ? cursorStack.requiredTargetStatus : undefined, // For status replacement
               count: 1,
@@ -245,7 +252,7 @@ export const useAppCounters = ({
                     handleDrop({
                       card: { id: 'stack', deck: 'counter', name: '', imageUrl: '', fallbackImage: '', power: 0, ability: '', types: [] },
                       source: 'counter_panel',
-                      ownerId: cursorStack.sourceCard?.ownerId, // Use source card owner for status ownership
+                      ownerId: cursorStack.originalOwnerId ?? cursorStack.sourceCard?.ownerId, // Use originalOwnerId (command card owner) for status ownership
                       statusType: cursorStack.type,
                       count: 1,
                     }, { target: 'board', boardCoords: { row, col } })
@@ -276,7 +283,7 @@ export const useAppCounters = ({
                 handleDrop({
                   card: { id: 'stack', deck: 'counter', name: '', imageUrl: '', fallbackImage: '', power: 0, ability: '', types: [] },
                   source: 'counter_panel',
-                  ownerId: cursorStack.sourceCard?.ownerId, // Use source card owner for status ownership
+                  ownerId: cursorStack.originalOwnerId ?? cursorStack.sourceCard?.ownerId, // Use originalOwnerId (command card owner) for status ownership
                   statusType: cursorStack.type,
                   replaceStatusType: cursorStack.replaceStatus ? cursorStack.requiredTargetStatus : undefined, // For Censor: Exploit -> Stun
                   count: amountToDrop,
@@ -304,15 +311,30 @@ export const useAppCounters = ({
                         chained.sourceCoords = { row, col }
                         chained.recordContext = true
                       }
+                      // For GLOBAL_AUTO_APPLY (e.g., False Orders Stun), update sourceCoords to moved card location
                       if (chained.type === 'GLOBAL_AUTO_APPLY') {
                         chained.sourceCoords = { row, col }
+                      }
+                      // For CREATE_STACK (e.g., False Orders Reveal), update sourceCoords but NOT sourceCard
+                      // The sourceCard should remain the command card (False Orders), not the moved card
+                      if (chained.type === 'CREATE_STACK') {
+                        chained.sourceCoords = { row, col }
+                        // Only update sourceCard if originalOwnerId is not set (preserve command card ownership)
+                        if (!chained.originalOwnerId) {
+                          chained.sourceCard = targetCard
+                        }
                       }
                       // ZIUS_LINE_SELECT: use target card coords as anchor point (where Exploit was placed)
                       if (chained.mode === 'ZIUS_LINE_SELECT') {
                         chained.sourceCoords = { row, col }
                       }
                     }
-                    onAction(chained, cursorStack.sourceCoords || { row: -1, col: -1 })
+                    // For CREATE_STACK chained actions (e.g., False Orders Reveal), clear abilityMode to remove board highlights
+                    if (chained.type === 'CREATE_STACK') {
+                      setAbilityMode(null)
+                    }
+                    // Use the new { row, col } as sourceCoords for chained action, not cursorStack.sourceCoords
+                    onAction(chained, { row, col })
                   }
                   setCursorStack(null)
                 }
@@ -352,7 +374,7 @@ export const useAppCounters = ({
     return () => {
       window.removeEventListener('mouseup', handleGlobalMouseUp)
     }
-  }, [cursorStack, handleDrop, gameState, localPlayerId, requestCardReveal, markAbilityUsed, interactionLock, setCommandContext, onAction, setCursorStack])
+  }, [cursorStack, handleDrop, gameState, localPlayerId, requestCardReveal, markAbilityUsed, interactionLock, setCommandContext, onAction, setCursorStack, setAbilityMode])
 
   // Handle right-click to cancel token placement mode
   useEffect(() => {

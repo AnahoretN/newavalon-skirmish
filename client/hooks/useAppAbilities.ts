@@ -46,6 +46,7 @@ interface UseAppAbilitiesProps {
     removeStatusByType: (coords: { row: number, col: number }, type: string) => void;
     triggerFloatingText: (data: Omit<FloatingTextData, 'timestamp'> | Omit<FloatingTextData, 'timestamp'>[]) => void;
     triggerHandCardSelection: (playerId: number, cardIndex: number, selectedByPlayerId: number) => void;
+    clearValidTargets: () => void;
 }
 
 export const useAppAbilities = ({
@@ -85,6 +86,7 @@ export const useAppAbilities = ({
   removeStatusByType,
   triggerFloatingText,
   triggerHandCardSelection,
+  clearValidTargets,
 }: UseAppAbilitiesProps) => {
 
   const handleActionExecution = useCallback((action: AbilityAction, sourceCoords: { row: number, col: number }) => {
@@ -1779,10 +1781,14 @@ export const useAppAbilities = ({
             nextAction.payload._tempContextId = sourceCard.id
           }
 
-          handleActionExecution(nextAction, boardCoords)
-          if (nextAction.type !== 'ENTER_MODE') {
-            setAbilityMode(null)
-          }
+          // Clear abilityMode BEFORE executing chained action to remove board highlights immediately
+          // This ensures the move phase highlights disappear before the Reveal token phase starts
+          setAbilityMode(null)
+          clearValidTargets()
+          // Small delay to allow React to re-render before showing the cursorStack
+          setTimeout(() => {
+            handleActionExecution(nextAction, boardCoords)
+          }, 1)
         } else {
           // CRITICAL FIX: Mark ability used at the NEW location (boardCoords) after move, not the old sourceCoords
           // After moveItem updates gameStateRef.current, the card is at boardCoords, not sourceCoords

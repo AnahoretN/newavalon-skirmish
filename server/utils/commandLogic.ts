@@ -197,9 +197,12 @@ export const getCommandAction = (
             type: 'CREATE_STACK',
             tokenType: 'Revealed',
             count: 2,
-            targetOwnerId: -2, // Owner of moved card
+            // Don't set targetOwnerId - allow targeting any opponent's cards (hand or face-down on board)
+            onlyOpponents: true,
             onlyFaceDown: true,
-            excludeOwnerId: localPlayerId,
+            excludeOwnerId: localPlayerId, // Exclude the command player from revealing their own cards
+            sourceCard: card, // Important: This is the False Orders card, whose owner should get credit
+            originalOwnerId: card.ownerId, // Preserve command owner for proper effect ownership
           },
         },
       })

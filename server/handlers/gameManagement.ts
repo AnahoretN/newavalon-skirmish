@@ -171,12 +171,22 @@ export function handleUpdateState(ws, data) {
       // Save server players AFTER draw (so we have the updated hand/deck)
       const serverPlayersAfterDraw = existingGameState.players;
 
-      // IMPORTANT: Collect announced card IDs from SERVER state BEFORE Object.assign
+      // IMPORTANT: Collect announced card IDs and discard card IDs from SERVER state BEFORE Object.assign
       // This is needed to clean up duplicates when command cards move from announced to discard
       const serverAnnouncedCardIds = new Set<string>();
+      const serverDiscardCardIds = new Set<string>();
       existingGameState.players.forEach((player: any) => {
         if (player.announcedCard?.id) {
           serverAnnouncedCardIds.add(player.announcedCard.id);
+        }
+        // Also collect IDs of cards already in discard before merge
+        // If a card is already in discard, we shouldn't remove it again
+        if (player.discard) {
+          player.discard.forEach((card: any) => {
+            if (card?.id) {
+              serverDiscardCardIds.add(card.id);
+            }
+          });
         }
       });
 
@@ -365,12 +375,43 @@ export function handleUpdateState(ws, data) {
 
       // For each player, remove any cards that are on the board or in announced slot
       existingGameState.players.forEach((player: any) => {
-        const removeCardsFromList = (list: any[]) => {
+        // First, deduplicate discard pile by card ID (can happen during merge when client and server both have the card)
+        if (player.discard && player.discard.length > 0) {
+          const seenIds = new Set<string>();
+          const uniqueDiscard: any[] = [];
+          for (const card of player.discard) {
+            if (card && card.id && !seenIds.has(card.id)) {
+              seenIds.add(card.id);
+              uniqueDiscard.push(card);
+            } else if (card && card.id && seenIds.has(card.id)) {
+              logger.info(`[BoardHandSync] Removing duplicate card ${card.id} from player ${player.id}'s discard`);
+            }
+          }
+          player.discard = uniqueDiscard;
+        }
+
+        const removeCardsFromList = (list: any[], isDiscardPile = false) => {
           if (!list) return;
           const initialLength = list.length;
           // Filter out cards that are on the board or in announced slot
           for (let i = list.length - 1; i >= 0; i--) {
-            if (boardCardIds.has(list[i].id) || currentAnnouncedCardIds.has(list[i].id)) {
+            const cardId = list[i].id;
+            const isOnBoard = boardCardIds.has(cardId);
+
+            // For discard pile: only remove if card is on board (not if just in announced)
+            // This is because cards moving from announced to discard is a valid operation
+            // We'll handle announced card cleanup separately below
+            if (isDiscardPile) {
+              if (isOnBoard) {
+                list.splice(i, 1);
+              }
+              // Skip cards that are in announced - they might be moving there legitimately
+              // The announcedCard cleanup below will handle clearing duplicates
+              continue;
+            }
+
+            // For hand and deck: remove if on board or in any player's announced slot
+            if (isOnBoard || currentAnnouncedCardIds.has(cardId)) {
               list.splice(i, 1);
             }
           }
@@ -381,12 +422,25 @@ export function handleUpdateState(ws, data) {
 
         removeCardsFromList(player.hand);
         removeCardsFromList(player.deck);
-        removeCardsFromList(player.discard);
+        removeCardsFromList(player.discard, true); // isDiscardPile = true
 
-        // Also clear announcedCard if it's on the board
-        if (player.announcedCard && boardCardIds.has(player.announcedCard.id)) {
-          logger.info(`[BoardHandSync] Clearing announcedCard for player ${player.id} - card is on board`);
-          player.announcedCard = null;
+        // Also clear announcedCard if it's on the board OR in the player's own discard/hand/deck
+        // This prevents duplicate cards when command cards are moved from announced to discard
+        if (player.announcedCard) {
+          const announcedId = player.announcedCard.id;
+          const isOnBoard = boardCardIds.has(announcedId);
+          // Check if the announced card is in this player's storage (hand, deck, discard)
+          const isInStorage = player.hand?.some((c: any) => c?.id === announcedId) ||
+                            player.deck?.some((c: any) => c?.id === announcedId) ||
+                            player.discard?.some((c: any) => c?.id === announcedId);
+
+          if (isOnBoard) {
+            logger.info(`[BoardHandSync] Clearing announcedCard for player ${player.id} - card is on board`);
+            player.announcedCard = null;
+          } else if (isInStorage) {
+            logger.info(`[BoardHandSync] Clearing announcedCard for player ${player.id} - card is in storage (hand/deck/discard), preventing duplicate`);
+            player.announcedCard = null;
+          }
         }
       });
 

@@ -199,30 +199,6 @@ const App = memo(function App() {
   const lastExternalHighlightsTimeRef = useRef<number>(0)
   const isLocalHighlightsOwnerRef = useRef<boolean>(false)
 
-  // Determine the owner of the current mode for highlight color
-  // This is used for both board highlights and hand card selection highlights
-  const highlightOwnerId = useMemo(() => {
-    if (abilityMode?.originalOwnerId !== undefined) {
-      return abilityMode.originalOwnerId
-    }
-    if (abilityMode?.sourceCard?.ownerId !== undefined) {
-      return abilityMode.sourceCard.ownerId
-    }
-    if (cursorStack?.originalOwnerId !== undefined) {
-      return cursorStack.originalOwnerId
-    }
-    if (cursorStack?.sourceCard?.ownerId !== undefined) {
-      return cursorStack.sourceCard.ownerId
-    }
-    if (playMode?.card?.ownerId !== undefined) {
-      return playMode.card.ownerId
-    }
-    if (commandModalCard?.ownerId !== undefined) {
-      return commandModalCard.ownerId
-    }
-    return gameState?.activePlayerId ?? 0
-  }, [abilityMode, cursorStack, playMode, commandModalCard, gameState?.activePlayerId])
-
   // Listen for syncHighlights events from WebSocket
   useEffect(() => {
     const handleSyncHighlights = (e: Event) => {
@@ -336,6 +312,30 @@ const App = memo(function App() {
   // Lifted state for cursor stack to resolve circular dependency
   const [cursorStack, setCursorStack] = useState<CursorStackState | null>(null)
 
+  // Determine the owner of the current mode for highlight color
+  // This is used for both board highlights and hand card selection highlights
+  const highlightOwnerId = useMemo(() => {
+    if (abilityMode?.originalOwnerId !== undefined) {
+      return abilityMode.originalOwnerId
+    }
+    if (abilityMode?.sourceCard?.ownerId !== undefined) {
+      return abilityMode.sourceCard.ownerId
+    }
+    if (cursorStack?.originalOwnerId !== undefined) {
+      return cursorStack.originalOwnerId
+    }
+    if (cursorStack?.sourceCard?.ownerId !== undefined) {
+      return cursorStack.sourceCard.ownerId
+    }
+    if (playMode?.card?.ownerId !== undefined) {
+      return playMode.card.ownerId
+    }
+    if (commandModalCard?.ownerId !== undefined) {
+      return commandModalCard.ownerId
+    }
+    return gameState?.activePlayerId ?? 0
+  }, [abilityMode, cursorStack, playMode, commandModalCard, gameState?.activePlayerId])
+
   const pendingRevealRequest = useMemo(() => {
     if (!localPlayerId || !gameState) {
       return null
@@ -408,6 +408,7 @@ const App = memo(function App() {
     removeStatusByType,
     triggerFloatingText,
     triggerHandCardSelection,
+    clearValidTargets: () => setValidTargets([]),
   })
 
   const handleAnnouncedCardDoubleClick = (player: Player, card: Card) => {
@@ -451,6 +452,7 @@ const App = memo(function App() {
     onAction: executeAction, // Pass the executor here
     cursorStack,
     setCursorStack,
+    setAbilityMode,
   })
 
   const isSpectator = useMemo(
@@ -1823,13 +1825,17 @@ const App = memo(function App() {
           items.push({ isDivider: true })
         }
         if (type === 'discardCard') {
-          items.push({ label: t('toHand'), disabled: isSpecialItem, onClick: () => moveItem(sourceItem, { target: 'hand', playerId: ownerId }) })
+          // Use ownerId if set, otherwise fall back to the player who owns the discard pile
+          const targetPlayerId = ownerId ?? player.id
+          items.push({ label: t('toHand'), disabled: isSpecialItem, onClick: () => moveItem(sourceItem, { target: 'hand', playerId: targetPlayerId }) })
         } else if (type === 'handCard') {
           items.push({ label: t('toDiscard'), onClick: () => moveItem(sourceItem, { target: 'discard', playerId: ownerId }) })
         }
-        if (['handCard', 'discardCard'].includes(type) && ownerId) {
-          items.push({ label: t('toDeckTop'), disabled: isSpecialItem, onClick: () => moveItem(sourceItem, { target: 'deck', playerId: ownerId, deckPosition: 'top' }) })
-          items.push({ label: t('toDeckBottom'), disabled: isSpecialItem, onClick: () => moveItem(sourceItem, { target: 'deck', playerId: ownerId, deckPosition: 'bottom' }) })
+        if (['handCard', 'discardCard'].includes(type)) {
+          // Use ownerId if set, otherwise fall back to the player who owns the pile
+          const targetPlayerId = ownerId ?? player.id
+          items.push({ label: t('toDeckTop'), disabled: isSpecialItem, onClick: () => moveItem(sourceItem, { target: 'deck', playerId: targetPlayerId, deckPosition: 'top' }) })
+          items.push({ label: t('toDeckBottom'), disabled: isSpecialItem, onClick: () => moveItem(sourceItem, { target: 'deck', playerId: targetPlayerId, deckPosition: 'bottom' }) })
         }
         if (type === 'deckCard') {
           items.push({ label: t('toHand'), disabled: isSpecialItem, onClick: () => moveItem(sourceItem, { target: 'hand', playerId: player.id }) })
