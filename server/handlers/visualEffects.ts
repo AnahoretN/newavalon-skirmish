@@ -317,178 +317,6 @@ export function handleTriggerFloatingTextBatch(ws: ExtendedWebSocket, data: any)
 }
 
 /**
- * Handle SYNC_HIGHLIGHTS message
- * Broadcasts highlight array to all clients in the game (for real-time target selection)
- */
-export function handleSyncHighlights(ws: ExtendedWebSocket, data: any) {
-  try {
-    // Security: Validate message size
-    if (!validateMessageSize(JSON.stringify(data))) {
-      ws.send(JSON.stringify({
-        type: 'ERROR',
-        message: 'Message size exceeds limit'
-      }));
-      return;
-    }
-
-    // Input validation
-    if (!data || typeof data !== 'object') {
-      ws.send(JSON.stringify({
-        type: 'ERROR',
-        message: 'Invalid data format'
-      }));
-      return;
-    }
-
-    const { gameId, highlights } = data;
-
-    if (!gameId || typeof gameId !== 'string') {
-      ws.send(JSON.stringify({
-        type: 'ERROR',
-        message: 'Invalid or missing gameId'
-      }));
-      return;
-    }
-
-    if (!Array.isArray(highlights)) {
-      ws.send(JSON.stringify({
-        type: 'ERROR',
-        message: 'Invalid or missing highlights array'
-      }));
-      return;
-    }
-
-    // Security: Sanitize gameId
-    const sanitizedGameId = sanitizeString(gameId);
-
-    const gameState = getGameState(sanitizedGameId);
-
-    if (!gameState) {
-      ws.send(JSON.stringify({
-        type: 'ERROR',
-        message: 'Game not found'
-      }));
-      return;
-    }
-
-    // Broadcast highlights to ALL OTHER clients (not the sender)
-    const message = JSON.stringify({
-      type: 'SYNC_HIGHLIGHTS',
-      highlights: highlights
-    });
-
-    const wssInstance = getWssInstance();
-    const clientGameMap = getClientGameMap();
-
-    if (wssInstance && wssInstance.clients) {
-      let sentCount = 0
-      wssInstance.clients.forEach((client: ExtendedWebSocket) => {
-        // Send to all clients in this game EXCEPT the sender
-        if (client !== ws && client.readyState === 1 && clientGameMap.get(client) === sanitizedGameId) {
-          try {
-            client.send(message);
-            sentCount++
-          } catch (err: any) {
-            logger.error(`Error sending SYNC_HIGHLIGHTS to client:`, err);
-          }
-        }
-      });
-      logger.debug(`Synced highlights to ${sentCount} other clients in game ${sanitizedGameId}`)
-    }
-
-  } catch (err: any) {
-    logger.error('Failed to sync highlights:', err);
-  }
-}
-
-/**
- * Handle SYNC_VALID_TARGETS message
- * Broadcasts valid hand targets and deck selectability to all clients in the game
- */
-export function handleSyncValidTargets(ws: ExtendedWebSocket, data: any) {
-  try {
-    // Security: Validate message size
-    if (!validateMessageSize(JSON.stringify(data))) {
-      ws.send(JSON.stringify({
-        type: 'ERROR',
-        message: 'Message size exceeds limit'
-      }));
-      return;
-    }
-
-    // Input validation
-    if (!data || typeof data !== 'object') {
-      ws.send(JSON.stringify({
-        type: 'ERROR',
-        message: 'Invalid data format'
-      }));
-      return;
-    }
-
-    const { gameId, playerId, validHandTargets, isDeckSelectable } = data;
-
-    if (!gameId || typeof gameId !== 'string') {
-      ws.send(JSON.stringify({
-        type: 'ERROR',
-        message: 'Invalid or missing gameId'
-      }));
-      return;
-    }
-
-    if (playerId === undefined || playerId === null) {
-      ws.send(JSON.stringify({
-        type: 'ERROR',
-        message: 'Invalid or missing playerId'
-      }));
-      return;
-    }
-
-    // Security: Sanitize gameId
-    const sanitizedGameId = sanitizeString(gameId);
-
-    const gameState = getGameState(sanitizedGameId);
-
-    if (!gameState) {
-      ws.send(JSON.stringify({
-        type: 'ERROR',
-        message: 'Game not found'
-      }));
-      return;
-    }
-
-    // Broadcast valid targets to ALL OTHER clients (not the sender)
-    const message = JSON.stringify({
-      type: 'SYNC_VALID_TARGETS',
-      playerId,
-      validHandTargets: validHandTargets || [],
-      isDeckSelectable: isDeckSelectable || false
-    });
-
-    const wssInstance = getWssInstance();
-    const clientGameMap = getClientGameMap();
-
-    if (wssInstance && wssInstance.clients) {
-      let sentCount = 0
-      wssInstance.clients.forEach((client: ExtendedWebSocket) => {
-        // Send to all clients in this game EXCEPT the sender
-        if (client !== ws && client.readyState === 1 && clientGameMap.get(client) === sanitizedGameId) {
-          try {
-            client.send(message);
-            sentCount++
-          } catch (err: any) {
-            logger.error(`Error sending SYNC_VALID_TARGETS to client:`, err);
-          }
-        }
-      });
-      logger.info(`[SyncValidTargets] Player ${playerId} synced targets to ${sentCount} clients in game ${sanitizedGameId}`)
-    }
-
-  } catch (err: any) {
-    logger.error('Failed to sync valid targets:', err);
-  }
-}
-
-/**
  * Handle TRIGGER_DECK_SELECTION message
  * Broadcasts a deck selection effect to all clients in the game
  */
@@ -611,5 +439,132 @@ export function handleTriggerHandCardSelection(ws: ExtendedWebSocket, data: any)
     broadcastVisualEffect(ws, sanitizedGameId, 'HAND_CARD_SELECTION_TRIGGERED', { handCardSelectionData });
   } catch (err: any) {
     logger.error('Failed to trigger hand card selection:', err);
+  }
+}
+
+/**
+ * Handle SET_TARGETING_MODE message
+ * Sets the targeting mode for all clients in the game
+ * Used universally for abilities, commands, and multi-step actions that require targeting
+ */
+export function handleSetTargetingMode(ws: ExtendedWebSocket, data: any) {
+  try {
+    // Security: Validate message size
+    if (!validateMessageSize(JSON.stringify(data))) {
+      ws.send(JSON.stringify({
+        type: 'ERROR',
+        message: 'Message size exceeds limit'
+      }));
+      return;
+    }
+
+    // Input validation
+    if (!data || typeof data !== 'object') {
+      ws.send(JSON.stringify({
+        type: 'ERROR',
+        message: 'Invalid data format'
+      }));
+      return;
+    }
+
+    const { gameId, targetingMode } = data;
+
+    if (!gameId || typeof gameId !== 'string') {
+      ws.send(JSON.stringify({
+        type: 'ERROR',
+        message: 'Invalid or missing gameId'
+      }));
+      return;
+    }
+
+    if (!targetingMode || typeof targetingMode !== 'object') {
+      ws.send(JSON.stringify({
+        type: 'ERROR',
+        message: 'Invalid or missing targetingMode'
+      }));
+      return;
+    }
+
+    // Security: Sanitize gameId
+    const sanitizedGameId = sanitizeString(gameId);
+
+    const gameState = getGameState(sanitizedGameId);
+
+    if (!gameState) {
+      ws.send(JSON.stringify({
+        type: 'ERROR',
+        message: 'Game not found'
+      }));
+      return;
+    }
+
+    // Update the targeting mode in the game state
+    gameState.targetingMode = targetingMode;
+
+    // Broadcast the updated state to all clients
+    broadcastVisualEffect(ws, sanitizedGameId, 'TARGETING_MODE_SET', { targetingMode });
+
+    logger.info(`[TargetingMode] Player ${targetingMode.playerId} set targeting mode in game ${sanitizedGameId}`);
+  } catch (err: any) {
+    logger.error('Failed to set targeting mode:', err);
+  }
+}
+
+/**
+ * Handle CLEAR_TARGETING_MODE message
+ * Clears the targeting mode for all clients in the game
+ */
+export function handleClearTargetingMode(ws: ExtendedWebSocket, data: any) {
+  try {
+    // Security: Validate message size
+    if (!validateMessageSize(JSON.stringify(data))) {
+      ws.send(JSON.stringify({
+        type: 'ERROR',
+        message: 'Message size exceeds limit'
+      }));
+      return;
+    }
+
+    // Input validation
+    if (!data || typeof data !== 'object') {
+      ws.send(JSON.stringify({
+        type: 'ERROR',
+        message: 'Invalid data format'
+      }));
+      return;
+    }
+
+    const { gameId } = data;
+
+    if (!gameId || typeof gameId !== 'string') {
+      ws.send(JSON.stringify({
+        type: 'ERROR',
+        message: 'Invalid or missing gameId'
+      }));
+      return;
+    }
+
+    // Security: Sanitize gameId
+    const sanitizedGameId = sanitizeString(gameId);
+
+    const gameState = getGameState(sanitizedGameId);
+
+    if (!gameState) {
+      ws.send(JSON.stringify({
+        type: 'ERROR',
+        message: 'Game not found'
+      }));
+      return;
+    }
+
+    // Clear the targeting mode in the game state
+    gameState.targetingMode = null;
+
+    // Broadcast the cleared state to all clients
+    broadcastVisualEffect(ws, sanitizedGameId, 'TARGETING_MODE_CLEARED', {});
+
+    logger.debug(`[TargetingMode] Cleared targeting mode in game ${sanitizedGameId}`);
+  } catch (err: any) {
+    logger.error('Failed to clear targeting mode:', err);
   }
 }

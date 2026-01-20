@@ -103,7 +103,7 @@ Before commit **MANDATORY**:
 │   ├── contexts/                 # React Context providers
 │   └── LanguageContext.tsx       # export const LanguageProvider: React.FC<{ children: ReactNode }>, export const useLanguage: () => {language: LanguageCode; setLanguage: (lang: LanguageCode) => void; t: (key: keyof TranslationResource['ui']) => string; getCardTranslation: (cardId: string) => CardTranslation | undefined; getCounterTranslation: (type: string) => { name: string; description: string } | undefined; resources: TranslationResource; isRTL: boolean}
 │   ├── hooks/                    # Custom React hooks (4 files)
-│   │   ├── useGameState.ts       # export const useGameState: () => {gameState: GameState, localPlayerId: number | null, setLocalPlayerId: (id: number | null) => void, draggedItem: DragItem | null, setDraggedItem: (item: DragItem | null) => void, connectionStatus: ConnectionStatus ('Connecting' | 'Connected' | 'Disconnected'), gamesList: any[], latestHighlight: HighlightData | null, latestFloatingTexts: FloatingTextData[], latestNoTarget: {row: number, col: number} | null, createGame, joinGame, requestGamesList, exitGame, startReadyCheck, cancelReadyCheck, playerReady, assignTeams, setGameMode, setGamePrivacy, setActiveGridSize, setDummyPlayerCount, updatePlayerName, changePlayerColor, updatePlayerScore, changePlayerDeck, loadCustomDeck, drawCard, shufflePlayerDeck, playCard, moveCard, returnCardToHand, announceCard, endTurn, playCounter, playToken, destroyCard, addCommand, cancelPendingCommand, executePendingCommand, handleQuickDrop, forceReconnect}
+│   │   ├── useGameState.ts       # export const useGameState: () => {gameState: GameState, localPlayerId: number | null, setLocalPlayerId: (id: number | null) => void, draggedItem: DragItem | null, setDraggedItem: (item: DragItem | null) => void, connectionStatus: ConnectionStatus ('Connecting' | 'Connected' | 'Disconnected'), gamesList: any[], latestHighlight: HighlightData | null, latestFloatingTexts: FloatingTextData[], latestNoTarget: {row: number, col: number} | null, setTargetingMode, clearTargetingMode, createGame, joinGame, requestGamesList, exitGame, startReadyCheck, cancelReadyCheck, playerReady, assignTeams, setGameMode, setGamePrivacy, setActiveGridSize, setDummyPlayerCount, updatePlayerName, changePlayerColor, updatePlayerScore, changePlayerDeck, loadCustomDeck, drawCard, shufflePlayerDeck, playCard, moveCard, returnCardToHand, announceCard, endTurn, playCounter, playToken, destroyCard, addCommand, cancelPendingCommand, executePendingCommand, handleQuickDrop, forceReconnect}
 │   │   ├── useAppCommand.ts      # export const useAppCommand: ({gameState, localPlayerId, draggedItem, setDraggedItem, openContextMenu, playMode, setPlayMode, setCursorStack, playerColorMap}) => {playCard, moveCard, returnCardToHand, announceCard, endTurn, playCounter, playToken, destroyCard, addCommand, cancelPendingCommand, executePendingCommand, handleQuickDrop}
 │   │   ├── useAppAbilities.ts    # export const useAppAbilities: ({gameState, localPlayerId, setCursorStack, playerColorMap}) => {handleDeployAbility}
 │   │   └── useAppCounters.ts     # export const useAppCounters: ({gameState, localPlayerId}) => {handleStackInteraction}
@@ -119,7 +119,7 @@ Before commit **MANDATORY**:
 │   │   └── ru.ts, sr.ts          # Translation files with same structure as en
 │   ├── App.tsx                   # export default function App - includes useEffect for auto-joining games from invite links (checks sessionStorage for invite_game_id)
 │   ├── index.tsx                 # Entry point - parses URL params (game, s) for invite links, stores invite_game_id in sessionStorage, decodes and saves WebSocket URL to localStorage
-│   ├── types.ts                  # enum DeckType, enum GameMode, type SpecialItemType, type PlayerColor, type GridSize, interface CardStatus, interface CounterDefinition, interface Card, interface Player, interface Cell, type Board, type CardIdentifier, interface RevealRequest, interface HighlightData, interface FloatingTextData, interface GameState, interface DragItem, interface DropTarget, interface CustomDeckCard, interface CustomDeckFile, type ContextMenuItem, type ContextMenuParams, interface CursorStackState, interface CommandContext
+│   ├── types.ts                  # enum DeckType, enum GameMode, type SpecialItemType, type PlayerColor, type GridSize, interface CardStatus, interface CounterDefinition, interface Card, interface Player, interface Cell, type Board, type CardIdentifier, interface RevealRequest, interface HighlightData, interface FloatingTextData, interface TargetingModeData, interface GameState, interface DragItem, interface DropTarget, interface CustomDeckCard, interface CustomDeckFile, type ContextMenuItem, type ContextMenuParams, interface CursorStackState, interface CommandContext
 │   ├── constants.ts              # export const MAX_PLAYERS, DECK_THEMES, PLAYER_COLORS, FLOATING_TEXT_COLORS, PLAYER_COLOR_NAMES, TURN_PHASES, STATUS_ICONS, STATUS_DESCRIPTIONS, AVAILABLE_COUNTERS, COUNTERS, shuffleDeck, PLAYER_POSITIONS
 │   ├── contentDatabase.ts        # export const rawJsonData, export type CardDefinition, export const cardDatabase, export const tokenDatabase, export const countersDatabase, export const deckFiles, export const commandCardIds, export const decksData, export const getSelectableDecks, export function getCardDefinition, export function getCardDefinitionByName, export function getAllCards
 │   ├── vite.config.ts            # export default defineConfig: (options: { command: string }) => UserConfig
@@ -135,7 +135,7 @@ Before commit **MANDATORY**:
 │   │   ├── gameManagement.ts     # export function handleSubscribe(ws, data), export function handleUpdateState(ws, data), export function handleJoinGame(ws, data), export function handleExitGame(ws, data), export function handleForceSync(ws, data)
 │   │   ├── readyCheck.ts         # export function handleStartReadyCheck(ws, data), export function handleCancelReadyCheck(ws, data), export function handlePlayerReady(ws, data)
 │   │   ├── gameSettings.ts       # export function handleSetGameMode(ws, data), export function handleSetGamePrivacy(ws, data), export function handleAssignTeams(ws, data), export function handleSetGridSize(ws, data)
-│   │   ├── visualEffects.ts      # export function handleTriggerHighlight(ws, data), export function handleTriggerNoTarget(ws, data), export function handleTriggerFloatingText(ws, data), export function handleTriggerFloatingTextBatch(ws, data)
+│   │   ├── visualEffects.ts      # export function handleTriggerHighlight(ws, data), export function handleTriggerNoTarget(ws, data), export function handleTriggerFloatingText(ws, data), export function handleTriggerFloatingTextBatch(ws, data), export function handleSyncHighlights(ws, data), export function handleSyncValidTargets(ws, data), export function handleTriggerDeckSelection(ws, data), export function handleTriggerHandCardSelection(ws, data), export function handleSetTargetingMode(ws, data), export function handleClearTargetingMode(ws, data)
 │   │   ├── deckData.ts           # export function handleUpdateDeckData(ws, data)
 │   │   ├── playerSettings.ts     # export function handleUpdatePlayerName(ws, data), export function handleChangePlayerColor(ws, data), export function handleUpdatePlayerScore(ws, data), export function handleChangePlayerDeck(ws, data), export function handleLoadCustomDeck(ws, data), export function handleSetDummyPlayerCount(ws, data), export function handleLogGameAction(ws, data), export function handleGetGameLogs(ws, data)
 │   │   └── phaseManagement.ts    # export function handleToggleAutoAbilities(ws, data), export function handleNextPhase(ws, data), export function handlePrevPhase(ws, data), export function handleSetPhase(ws, data), export function performDrawPhase(gameState), export function handleToggleAutoDraw(ws, data), export function handleToggleActivePlayer(ws, data), export function handleStartNextRound(ws, data), export function handleStartNewMatch(ws, data), includes getRoundVictoryThreshold(round), checkRoundEnd(gameState), endRound(gameState)
@@ -269,6 +269,55 @@ Before commit **MANDATORY**:
 1. **client/hooks/useGameState.ts** - `ws.current.send(JSON.stringify({ type: 'TRIGGER_NO_TARGET', gameId, coords, timestamp }))` (line 1410)
 2. **server/services/websocket.ts** - `routeMessage` → `handleTriggerNoTarget` (line 198)
 3. **client/hooks/useGameState.ts** - `if (data.type === 'NO_TARGET_TRIGGERED') { setLatestNoTarget({ coords: data.coords, timestamp: data.timestamp }) }` (line 237-238)
+
+### Universal Targeting Mode System
+The universal targeting mode system provides a synchronized way to show valid targets to all players when any player activates an ability, command, or multi-step action that requires targeting.
+
+#### Targeting Mode Activation
+1. **client/hooks/useGameState.ts** - `setTargetingMode(action, playerId, sourceCoords?, commandContext?)` (line 2515-2561)
+   - Calculates valid board targets using `calculateValidTargetsUtil` from server/utils/targeting.ts
+   - Creates `TargetingModeData` object with action, playerId, sourceCoords, timestamp, boardTargets
+   - Updates local gameState.targetingMode immediately
+   - Broadcasts `SET_TARGETING_MODE` message to server
+2. **server/services/websocket.ts** - `routeMessage` → `handleSetTargetingMode` (line 215)
+3. **server/handlers/visualEffects.ts** - `handleSetTargetingMode()` (line 642-703)
+   - Validates gameId and targetingMode data
+   - Updates gameState.targetingMode on server
+   - Broadcasts `TARGETING_MODE_SET` to all clients
+4. **client/hooks/useGameState.ts** - `if (data.type === 'TARGETING_MODE_SET')` (line 641-654)
+   - All clients update their local gameState.targetingMode
+   - Visual highlights appear on GameBoard using the targeting player's color
+
+#### Targeting Mode Clearing
+1. **client/hooks/useGameState.ts** - `clearTargetingMode()` (line 2567-2586)
+   - Clears local gameState.targetingMode
+   - Broadcasts `CLEAR_TARGETING_MODE` message to server
+2. **server/services/websocket.ts** - `routeMessage` → `handleClearTargetingMode` (line 216)
+3. **server/handlers/visualEffects.ts** - `handleClearTargetingMode()` (line 709-762)
+   - Clears gameState.targetingMode on server
+   - Broadcasts `TARGETING_MODE_CLEARED` to all clients
+4. **client/hooks/useGameState.ts** - `if (data.type === 'TARGETING_MODE_CLEARED')` (line 655-662)
+   - All clients clear their local gameState.targetingMode
+   - Visual highlights are removed
+
+#### Visual Display (GameBoard)
+- **client/components/GameBoard.tsx** - `targetingMode` prop (line 37)
+- Valid targets from `targetingMode.boardTargets` are combined with local `validTargets`
+- Each valid target cell is highlighted with dashed border in the targeting player's color
+- Highlights are visible to ALL players, but only the targeting player can click to select
+
+#### TargetingModeData Structure
+```typescript
+interface TargetingModeData {
+  playerId: number;              // The player whose turn it is to select a target
+  action: AbilityAction;         // The action defining targeting constraints
+  sourceCoords?: {row: number; col: number};  // Source card coordinates (if applicable)
+  timestamp: number;             // For uniqueness and timeout
+  boardTargets?: {row: number, col: number}[];  // Valid board targets (pre-calculated)
+  handTargets?: {playerId: number, cardIndex: number}[];  // Valid hand targets
+  isDeckSelectable?: boolean;    // Whether deck is a valid target
+}
+```
 
 ### Game State Updates
 #### Ready Check System

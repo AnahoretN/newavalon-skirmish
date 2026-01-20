@@ -235,6 +235,7 @@ export interface GameState {
   highlights: HighlightData[]; // Array of cell highlights to display
   deckSelections: DeckSelectionData[]; // Array of deck selection effects to display
   handCardSelections: HandCardSelectionData[]; // Array of hand card selection effects to display
+  targetingMode: TargetingModeData | null; // Active targeting mode (shared across all clients)
 
   // Server-side auto-draw tracking for Setup phase
   autoDrawnPlayers?: number[]; // Player IDs who have already auto-drawn this Setup phase
@@ -394,3 +395,18 @@ export type AbilityAction = {
     replaceStatus?: boolean; // If true, replace the requiredTargetStatus with tokenType (e.g., Censor: Exploit -> Stun)
     originalOwnerId?: number; // The owner of the card that initiated this action (for multi-step commands like Data Interception)
 };
+
+/**
+ * Targeting mode data - shared across all clients for synchronized targeting UI
+ * When a player activates an ability/command that requires targeting, this data is broadcast
+ * so all players can see the valid targets highlighted in the activating player's color.
+ */
+export interface TargetingModeData {
+    playerId: number; // The player whose turn it is to select a target
+    action: AbilityAction; // The action defining targeting constraints
+    sourceCoords?: { row: number; col: number }; // Source card coordinates (if applicable)
+    timestamp: number; // For uniqueness and timeout
+    boardTargets?: {row: number, col: number}[]; // Valid board targets (pre-calculated)
+    handTargets?: { playerId: number, cardIndex: number }[]; // Valid hand targets (pre-calculated)
+    isDeckSelectable?: boolean; // Whether deck is a valid target
+}

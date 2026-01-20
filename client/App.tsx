@@ -104,9 +104,10 @@ const App = memo(function App() {
     latestNoTarget,
     triggerNoTarget,
     triggerDeckSelection,
-    syncHighlights,
     syncValidTargets,
     remoteValidTargets,
+    setTargetingMode,
+    clearTargetingMode,
     nextPhase,
     prevPhase,
     setPhase,
@@ -196,28 +197,6 @@ const App = memo(function App() {
   const [activeFloatingTexts, setActiveFloatingTexts] = useState<FloatingTextData[]>([])
 
   // Track when we last received highlights from server (to prevent clearing them prematurely)
-  const lastExternalHighlightsTimeRef = useRef<number>(0)
-  const isLocalHighlightsOwnerRef = useRef<boolean>(false)
-
-  // Listen for syncHighlights events from WebSocket
-  useEffect(() => {
-    const handleSyncHighlights = (e: Event) => {
-      const customEvent = e as CustomEvent<HighlightData[]>
-      const highlights = customEvent.detail || []
-      setLocalHighlights(highlights)
-
-      // Mark that we received highlights from another player
-      // and update the timestamp to prevent premature clearing
-      if (highlights.length > 0) {
-        lastExternalHighlightsTimeRef.current = Date.now()
-        isLocalHighlightsOwnerRef.current = false
-      }
-    }
-    window.addEventListener('syncHighlights', handleSyncHighlights as EventListener)
-    return () => window.removeEventListener('syncHighlights', handleSyncHighlights as EventListener)
-  }, [])
-
-  // Load auto-abilities setting from localStorage
   const [isAutoAbilitiesEnabled, setIsAutoAbilitiesEnabled] = useState(() => {
     try {
       const saved = localStorage.getItem('auto_abilities_enabled')
@@ -235,15 +214,6 @@ const App = memo(function App() {
       // Ignore localStorage errors
     }
   }, [isAutoAbilitiesEnabled])
-
-  // Reset highlight refs when exiting a game or when gameId changes
-  useEffect(() => {
-    if (!gameState?.gameId) {
-      sentHighlightsHash.current = ''
-      lastExternalHighlightsTimeRef.current = 0
-      isLocalHighlightsOwnerRef.current = false
-    }
-  }, [gameState?.gameId])
 
   // Auto-draw is now stored per-player in gameState.players
   const isAutoDrawEnabled = useMemo(() => {
@@ -298,7 +268,6 @@ const App = memo(function App() {
   const [validHandTargets, setValidHandTargets] = useState<{playerId: number, cardIndex: number}[]>([])
   const [noTargetOverlay, setNoTargetOverlay] = useState<{row: number, col: number} | null>(null)
   // Local state for highlights - synchronized via WebSocket, NOT via gameState
-  const [localHighlights, setLocalHighlights] = useState<HighlightData[]>([])
   const [commandContext, setCommandContext] = useState<CommandContext>({})
   const [abilityCheckKey, setAbilityCheckKey] = useState(0)
   const leftPanelRef = useRef<HTMLDivElement>(null)
@@ -307,7 +276,6 @@ const App = memo(function App() {
 
   const interactionLock = useRef(false)
   // Track sent highlights to avoid duplicate broadcasts
-  const sentHighlightsHash = useRef<string>('')
 
   // Lifted state for cursor stack to resolve circular dependency
   const [cursorStack, setCursorStack] = useState<CursorStackState | null>(null)
@@ -757,14 +725,7 @@ const App = memo(function App() {
   // Reset justAutoTransitioned when phase changes
   useEffect(() => {
     setJustAutoTransitioned(false)
-    // Clear highlights when phase changes (especially when leaving Scoring)
-    if (localHighlights.length > 0) {
-      logger.debug('[Phase Change] Clearing highlights due to phase change to', gameState?.currentPhase)
-      setLocalHighlights([])
-      sentHighlightsHash.current = ''
-      isLocalHighlightsOwnerRef.current = false
-    }
-  }, [gameState?.currentPhase, localHighlights.length])
+  }, [gameState?.currentPhase])
 
   // Recheck ability readiness when phase changes
   useEffect(() => {
@@ -976,165 +937,90 @@ const App = memo(function App() {
 
     setValidTargets(boardTargets)
     setValidHandTargets(handTargets)
-    return undefined
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [abilityMode, cursorStack, playMode, commandModalCard, gameState.board, gameState.players, localPlayerId, commandContext, gameState.activePlayerId])
 
-  // Separate effect: Broadcast highlights to other players when abilityMode, cursorStack, playMode, or commandModalCard changes
-  // ONLY the active player (who has abilityMode, cursorStack, playMode, or commandModalCard) should create and sync highlights
-  // Other players just receive highlights via WebSocket message
-  useEffect(() => {
-    logger.debug('[Highlights] Effect triggered - abilityMode:', abilityMode?.mode, 'cursorStack:', cursorStack?.type, 'playMode:', !!playMode, 'commandModalCard:', !!commandModalCard, 'validTargets:', validTargets.length)
-
-    // Determine if we have any active mode that needs highlights
+    // Use universal targeting mode system to sync targets to all players
+    // This ensures all players see the same visual highlights
     const hasPlayMode = playMode && playMode.card?.types?.includes('Unit')
     const hasCommandModal = !!commandModalCard
+    const hasActiveMode = abilityMode || cursorStack || hasPlayMode || hasCommandModal
 
-    // If we don't have abilityMode OR cursorStack OR playMode OR commandModalCard (mode ended)
-    if (!abilityMode && !cursorStack && !hasPlayMode && !hasCommandModal) {
-      // Only clear and broadcast if WE are the owner of these highlights (not received from another player)
-      if (isLocalHighlightsOwnerRef.current && (sentHighlightsHash.current !== '' || localHighlights.length > 0)) {
-        logger.debug('[Highlights] Mode ended (we are owner), clearing highlights and broadcasting empty array')
-        sentHighlightsHash.current = ''
-        setLocalHighlights([])
-        isLocalHighlightsOwnerRef.current = false
-        // Broadcast empty highlights to clear them for all players
-        syncHighlights([])
-      } else if (!isLocalHighlightsOwnerRef.current && localHighlights.length > 0) {
-        // We received highlights from another player, keep them but update hash to match
-        // Use a special hash format for external highlights
-        const now = Date.now()
-        sentHighlightsHash.current = `external:${lastExternalHighlightsTimeRef.current}`
-        // Clear highlights if they're too old (> 5 seconds) to prevent stale highlights
-        if (now - lastExternalHighlightsTimeRef.current > 5000) {
-          logger.debug('[Highlights] External highlights expired, clearing')
-          setLocalHighlights([])
-          sentHighlightsHash.current = ''
+    if (hasActiveMode && boardTargets.length > 0) {
+      // Determine the action to use for targeting mode
+      let targetingAction: AbilityAction | null = null
+
+      if (abilityMode) {
+        targetingAction = abilityMode
+      } else if (cursorStack) {
+        const targetType = cursorStack.targetType
+        targetingAction = {
+          type: 'ENTER_MODE',
+          mode: 'SELECT_TARGET',
+          sourceCoords: cursorStack.sourceCoords,
+          payload: {
+            filter: targetType ? ((card: Card) => card.types?.includes(targetType)) : undefined,
+            ...(cursorStack.maxDistanceFromSource !== undefined && { range: cursorStack.maxDistanceFromSource }),
+          },
+          originalOwnerId: cursorStack.originalOwnerId,
+        }
+      } else if (playMode) {
+        targetingAction = {
+          type: 'ENTER_MODE',
+          mode: 'SELECT_TARGET',
+        }
+      } else if (commandModalCard) {
+        targetingAction = {
+          type: 'ENTER_MODE',
+          mode: 'SELECT_TARGET',
         }
       }
-      return
-    }
 
-    // Determine the owner of the current mode for highlight color
-    // The highlights should belong to the card/ability owner, not the active player
-    let highlightOwnerId: number
-    if (abilityMode?.originalOwnerId !== undefined) {
-      // For multi-step commands, use the original command owner
-      highlightOwnerId = abilityMode.originalOwnerId
-    } else if (abilityMode?.sourceCard?.ownerId !== undefined) {
-      highlightOwnerId = abilityMode.sourceCard.ownerId
-    } else if (cursorStack?.originalOwnerId !== undefined) {
-      // For cursor stacks from multi-step commands
-      highlightOwnerId = cursorStack.originalOwnerId
-    } else if (cursorStack?.sourceCard?.ownerId !== undefined) {
-      highlightOwnerId = cursorStack.sourceCard.ownerId
-    } else if (playMode?.card?.ownerId !== undefined) {
-      highlightOwnerId = playMode.card.ownerId
-    } else if (commandModalCard?.ownerId !== undefined) {
-      highlightOwnerId = commandModalCard.ownerId
-    } else {
-      highlightOwnerId = gameState.activePlayerId ?? 0
-    }
+      if (targetingAction && actorId !== null) {
+        // Pass pre-calculated boardTargets to avoid recalculating (important for line modes)
+        // IMPORTANT: The visual highlight color should be the owner of the CARD THAT TRIGGERED the mode
+        // Priority:
+        // 1. commandModalCard.ownerId (for command cards - the card that triggered the mode)
+        // 2. abilityMode.sourceCoords -> card.ownerId (for abilities on cards - the card with the ability)
+        // 3. cursorStack.sourceCard.ownerId (for token stacking - the source card)
+        // 4. localPlayerId (current player on this client)
+        // 5. gameState.activePlayerId (active player in game)
+        // 6. actorId (fallback)
+        let targetingPlayerId: number | null = null
 
-    // Create a hash of current state to detect changes
-    const mode = abilityMode?.mode || cursorStack?.type || (playMode ? 'playMode' : '') || (commandModalCard ? 'commandModal' : '') || 'none'
-    const sourceCoords = abilityMode?.sourceCoords || cursorStack?.sourceCoords
-    const sourceCoordsStr = sourceCoords ? `${sourceCoords.row},${sourceCoords.col}` : 'none'
-    const cardId = playMode?.card?.id || commandModalCard?.id || 'none'
-    const targetsHash = validTargets.map(t => `${t.row},${t.col}`).sort().join('|')
-    const currentHash = `${mode}:${sourceCoordsStr}:${cardId}:${targetsHash}`
-
-    logger.debug('[Highlights] currentHash:', currentHash, 'sentHash:', sentHighlightsHash.current, 'localHighlights:', localHighlights.length)
-
-    // Skip if same state (hash hasn't changed) AND local highlights are already set
-    // This prevents re-broadcasting but allows re-setting local highlights if they were lost (e.g., after HMR/reconnect)
-    if (currentHash === sentHighlightsHash.current) {
-      // If hash matches but local highlights are empty/desynced, we still need to update them
-      // Expected count: for line modes it's gridSize*2, for target modes it's validTargets.length
-      const expectedCount = (abilityMode?.mode === 'SCORE_LAST_PLAYED_LINE' ||
-        abilityMode?.mode === 'SELECT_LINE_END' ||
-        abilityMode?.mode === 'INTEGRATOR_LINE_SELECT' ||
-        abilityMode?.mode === 'ZIUS_LINE_SELECT')
-        ? boardSize * 2
-        : validTargets.length
-
-      if (localHighlights.length === expectedCount && localHighlights.length > 0) {
-        logger.debug('[Highlights] Same state, skipping')
-        return
-      }
-      logger.debug('[Highlights] Same hash but local highlights desynced, updating')
-    }
-
-    const activePlayerId = gameState.activePlayerId
-    if (!activePlayerId) {
-      sentHighlightsHash.current = currentHash
-      logger.debug('[Highlights] No activePlayerId')
-      return
-    }
-
-    // Calculate new highlights based on current mode
-    const newHighlights: HighlightData[] = []
-    const timestamp = Date.now()
-
-    // Send new highlights for line/target selection modes
-    if (abilityMode && (abilityMode.mode === 'SCORE_LAST_PLAYED_LINE' ||
-        abilityMode.mode === 'SELECT_LINE_END' ||
-        abilityMode.mode === 'INTEGRATOR_LINE_SELECT' ||
-        abilityMode.mode === 'ZIUS_LINE_SELECT')) {
-      const gridSize = boardSize
-
-      if (abilityMode.sourceCoords) {
-        // Send horizontal line highlights
-        for (let c = 0; c < gridSize; c++) {
-          newHighlights.push({
-            type: 'cell',
-            row: abilityMode.sourceCoords.row,
-            col: c,
-            playerId: highlightOwnerId,
-            timestamp,
-          })
+        // Priority 1: commandModalCard.ownerId (for command cards)
+        if (commandModalCard?.ownerId !== undefined) {
+          targetingPlayerId = commandModalCard.ownerId
         }
-        // Send vertical line highlights
-        for (let r = 0; r < gridSize; r++) {
-          newHighlights.push({
-            type: 'cell',
-            row: r,
-            col: abilityMode.sourceCoords.col,
-            playerId: highlightOwnerId,
-            timestamp,
-          })
+
+        // Priority 2: abilityMode.sourceCoords -> card.ownerId (for abilities on cards)
+        if (targetingPlayerId === null && abilityMode?.sourceCoords) {
+          const { row, col } = abilityMode.sourceCoords
+          if (row >= 0 && row < boardSize && col >= 0 && col < gameState.board[row].length) {
+            const sourceCard = gameState.board[row][col]?.card
+            if (sourceCard?.ownerId !== undefined) {
+              targetingPlayerId = sourceCard.ownerId
+            }
+          }
         }
+
+        // Priority 3: cursorStack.sourceCard.ownerId (for token stacking)
+        if (targetingPlayerId === null && cursorStack?.sourceCard?.ownerId !== undefined) {
+          targetingPlayerId = cursorStack.sourceCard.ownerId
+        }
+
+        // Fallbacks
+        targetingPlayerId = targetingPlayerId ?? localPlayerId ?? gameState.activePlayerId ?? actorId
+
+        setTargetingMode(targetingAction, targetingPlayerId, abilityMode?.sourceCoords || cursorStack?.sourceCoords, boardTargets, commandContext)
       }
-      logger.debug('[Highlights] Line selection mode:', abilityMode.mode, 'highlights:', newHighlights.length)
-    } else if (validTargets.length > 0) {
-      // For all modes with validTargets (including cursorStack, playMode, commandModalCard), send highlights
-      validTargets.forEach(target => {
-        newHighlights.push({
-          type: 'cell',
-          row: target.row,
-          col: target.col,
-          playerId: highlightOwnerId,
-          timestamp,
-        })
-      })
-      logger.debug('[Highlights] Target selection - mode:', mode, 'targets:', validTargets.length, 'highlights:', newHighlights.length)
-    } else {
-      // Mode is active but no valid targets yet - don't clear, keep existing highlights until targets appear
-      logger.debug('[Highlights] Mode active but no targets yet - keeping existing highlights')
-      sentHighlightsHash.current = currentHash
-      return
+    } else if (!hasActiveMode) {
+      // Clear targeting mode when no active mode exists
+      clearTargetingMode()
     }
 
-    // Update local highlights and broadcast via WebSocket
-    logger.debug('[Highlights] Setting local highlights:', newHighlights.length)
-    setLocalHighlights(newHighlights)
-    isLocalHighlightsOwnerRef.current = true  // Mark that we own these highlights
+    return undefined
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [abilityMode, cursorStack, playMode, commandModalCard, gameState.board, gameState.players, localPlayerId, commandContext, gameState.activePlayerId, setTargetingMode, clearTargetingMode])
 
-    // Broadcast highlights to other players via WebSocket (does not affect local state)
-    syncHighlights(newHighlights)
-
-    sentHighlightsHash.current = currentHash
-  }, [abilityMode, abilityMode?.mode, abilityMode?.sourceCoords, cursorStack, cursorStack?.type, cursorStack?.sourceCoords, playMode, commandModalCard, gameState.activePlayerId, validTargets, syncHighlights, localHighlights, boardSize])
 
   // Sync valid hand targets and deck selectability to other players
   useEffect(() => {
@@ -2270,9 +2156,9 @@ const App = memo(function App() {
               disableActiveHighlights={isTargetingMode}
               preserveDeployAbilities={justAutoTransitioned}
               activeFloatingTexts={activeFloatingTexts}
-              highlights={localHighlights}
               abilitySourceCoords={abilityMode?.sourceCoords || null}
               abilityCheckKey={abilityCheckKey}
+              targetingMode={gameState.targetingMode}
             />
           </div>
         </div>

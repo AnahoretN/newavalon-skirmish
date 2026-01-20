@@ -83,7 +83,7 @@
       "imageUrl": "https://res.cloudinary.com/dxxh6meej/image/upload/v1763253317/HOO_DATA_LIBERATOR_lbtqa2.png",
       "fallbackImage": "/images/cards/HOO_DATA_LIBERATOR.png",
       "power": 2,
-      "ability": "Pass: Cards with your Exploit tokens score points for you.\nDeploy: Place an Exploit token on any card.",
+      "ability": "Pass (requires Support): Cards with your Exploit tokens score Points for you.\nDeploy: Place an Exploit token on any card.",
       "flavorText": "- \"Information doesn't want to be free. It needs to be.\"",
       "types": ["Unit", "Hoods"],
       "faction": "Hoods",

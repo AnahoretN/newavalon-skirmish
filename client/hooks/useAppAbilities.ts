@@ -1451,7 +1451,7 @@ export const useAppAbilities = ({
         if (payload.filter && !payload.filter(card, boardCoords.row, boardCoords.col)) {
           return
         }
-        setCursorStack({ type: 'Revealed', count: 1, isDragging: false, sourceCoords: sourceCoords, sourceCard: sourceCard, originalOwnerId: action.originalOwnerId, targetOwnerId: card.ownerId, onlyFaceDown: true, onlyOpponents: true, isDeployAbility: isDeployAbility })
+        setCursorStack({ type: 'Revealed', count: 1, isDragging: false, sourceCoords: sourceCoords, sourceCard: sourceCard, originalOwnerId: abilityMode.originalOwnerId, targetOwnerId: card.ownerId, onlyFaceDown: true, onlyOpponents: true, isDeployAbility: isDeployAbility })
         setTimeout(() => setAbilityMode(null), TIMING.MODE_CLEAR_DELAY)
         return
       }

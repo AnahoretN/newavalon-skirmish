@@ -1,11 +1,12 @@
 // ... existing imports
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { DeckType, GameMode as GameModeEnum } from '../types'
-import type { GameState, Player, Board, GridSize, Card, DragItem, DropTarget, PlayerColor, RevealRequest, CardIdentifier, CustomDeckFile, HighlightData, FloatingTextData, DeckSelectionData, HandCardSelectionData } from '../types'
+import type { GameState, Player, Board, GridSize, Card, DragItem, DropTarget, PlayerColor, RevealRequest, CardIdentifier, CustomDeckFile, HighlightData, FloatingTextData, DeckSelectionData, HandCardSelectionData, TargetingModeData, AbilityAction, CommandContext } from '../types'
 import { PLAYER_COLOR_NAMES, TURN_PHASES, MAX_PLAYERS } from '../constants'
 import { shuffleDeck } from '@shared/utils/array'
 import { decksData, countersDatabase, rawJsonData, getCardDefinitionByName, getCardDefinition, commandCardIds } from '../content'
 import { createInitialBoard, recalculateBoardStatuses } from '@server/utils/boardUtils'
+import { calculateValidTargets } from '@server/utils/targeting'
 import { logger } from '../utils/logger'
 import { initializeReadyStatuses, removeAllReadyStatuses, resetPhaseReadyStatuses } from '../utils/autoAbilities'
 import { deepCloneState, TIMING } from '../utils/common'
@@ -288,6 +289,7 @@ export const useGameState = () => {
     highlights: [],
     deckSelections: [],
     handCardSelections: [],
+    targetingMode: null,
     localPlayerId: null,
     isSpectator: false,
   }), [])
@@ -610,12 +612,6 @@ export const useGameState = () => {
             ...prev,
             floatingTexts: [...prev.floatingTexts, ...data.batch].filter(t => Date.now() - t.timestamp < TIMING.FLOATING_TEXT_DURATION)
           }))
-        } else if (data.type === 'SYNC_HIGHLIGHTS') {
-          // Receive highlights from other players
-          // Ignore highlights from ourselves to avoid overwriting our local state
-          if (data.playerId !== localPlayerIdRef.current) {
-            window.dispatchEvent(new CustomEvent('syncHighlights', { detail: data.highlights }))
-          }
         } else if (data.type === 'SYNC_VALID_TARGETS') {
           // Receive valid targets from other players
           // Ignore targets from ourselves to avoid overwriting our local state
@@ -630,6 +626,28 @@ export const useGameState = () => {
               setRemoteValidTargets(prev => prev?.playerId === data.playerId ? null : prev)
             }, 10000)
           }
+        } else if (data.type === 'TARGETING_MODE_SET') {
+          // Receive targeting mode from any player (including ourselves for confirmation)
+          const targetingMode = data.targetingMode
+          if (targetingMode) {
+            setGameState(prev => ({
+              ...prev,
+              targetingMode: targetingMode,
+            }))
+            gameStateRef.current.targetingMode = targetingMode
+            logger.info('[TargetingMode] Received targeting mode from server', {
+              playerId: targetingMode.playerId,
+              mode: targetingMode.action.mode,
+            })
+          }
+        } else if (data.type === 'TARGETING_MODE_CLEARED') {
+          // Clear targeting mode for all clients
+          setGameState(prev => ({
+            ...prev,
+            targetingMode: null,
+          }))
+          gameStateRef.current.targetingMode = null
+          logger.debug('[TargetingMode] Cleared targeting mode from server')
         } else if (!data.type && data.players && data.board) {
           // Only update gameState if it's a valid game state (no type, but has required properties)
           // Sync card images from database (important for tokens after reconnection)
@@ -2411,18 +2429,6 @@ export const useGameState = () => {
     }
   }, [])
 
-  const syncHighlights = useCallback((highlights: HighlightData[]) => {
-    // Broadcast highlights to other players via WebSocket
-    if (ws.current?.readyState === WebSocket.OPEN && gameStateRef.current.gameId) {
-      ws.current.send(JSON.stringify({
-        type: 'SYNC_HIGHLIGHTS',
-        gameId: gameStateRef.current.gameId,
-        playerId: localPlayerIdRef.current,
-        highlights,
-      }))
-    }
-  }, [])
-
   const triggerDeckSelection = useCallback((playerId: number, selectedByPlayerId: number) => {
     const deckSelectionData = {
       playerId,
@@ -2489,6 +2495,95 @@ export const useGameState = () => {
         ...validTargetsData,
       }))
     }
+  }, [])
+
+  /**
+   * Universal targeting mode activation
+   * Sets the targeting mode for all clients, synchronized via server
+   *
+   * @param action - The AbilityAction defining targeting constraints
+   * @param playerId - The player who will select the target
+   * @param sourceCoords - Optional source card coordinates
+   * @param preCalculatedTargets - Optional pre-calculated board targets (for line modes, etc.)
+   * @param commandContext - Optional command context for multi-step actions
+   */
+  const setTargetingMode = useCallback((
+    action: AbilityAction,
+    playerId: number,
+    sourceCoords?: { row: number; col: number },
+    preCalculatedTargets?: {row: number, col: number}[],
+    commandContext?: CommandContext
+  ) => {
+    const currentGameState = gameStateRef.current
+
+    // Use pre-calculated targets if provided, otherwise calculate them
+    let boardTargets: {row: number, col: number}[] = []
+    if (preCalculatedTargets) {
+      boardTargets = preCalculatedTargets
+    } else {
+      boardTargets = calculateValidTargets(action, currentGameState, playerId, commandContext)
+    }
+
+    // Check for hand targets (if applicable)
+    const handTargets: { playerId: number, cardIndex: number }[] = []
+    const isDeckSelectable = action.mode === 'SELECT_DECK'
+
+    // Build targeting mode data
+    const targetingModeData: TargetingModeData = {
+      playerId,
+      action,
+      sourceCoords,
+      timestamp: Date.now(),
+      boardTargets,
+      handTargets: handTargets.length > 0 ? handTargets : undefined,
+      isDeckSelectable: isDeckSelectable || undefined,
+    }
+
+    // Update local state immediately
+    setGameState(prev => ({
+      ...prev,
+      targetingMode: targetingModeData,
+    }))
+    gameStateRef.current.targetingMode = targetingModeData
+
+    // Broadcast to all clients via server
+    if (ws.current?.readyState === WebSocket.OPEN && currentGameState.gameId) {
+      ws.current.send(JSON.stringify({
+        type: 'SET_TARGETING_MODE',
+        gameId: currentGameState.gameId,
+        targetingMode: targetingModeData,
+      }))
+    }
+
+    logger.info(`[TargetingMode] Player ${playerId} activated targeting mode`, {
+      mode: action.mode,
+      boardTargetsCount: boardTargets.length,
+    })
+  }, [])
+
+  /**
+   * Clear the active targeting mode
+   * Clears the targeting mode for all clients
+   */
+  const clearTargetingMode = useCallback(() => {
+    const currentGameState = gameStateRef.current
+
+    // Update local state
+    setGameState(prev => ({
+      ...prev,
+      targetingMode: null,
+    }))
+    gameStateRef.current.targetingMode = null
+
+    // Broadcast to all clients via server
+    if (ws.current?.readyState === WebSocket.OPEN && currentGameState.gameId) {
+      ws.current.send(JSON.stringify({
+        type: 'CLEAR_TARGETING_MODE',
+        gameId: currentGameState.gameId,
+      }))
+    }
+
+    logger.debug('[TargetingMode] Cleared targeting mode')
   }, [])
 
   const markAbilityUsed = useCallback((boardCoords: { row: number, col: number }, _isDeployAbility?: boolean, _setDeployAttempted?: boolean, readyStatusToRemove?: string) => {
@@ -2935,9 +3030,10 @@ export const useGameState = () => {
     triggerNoTarget,
     triggerDeckSelection,
     triggerHandCardSelection,
-    syncHighlights,
     syncValidTargets,
     remoteValidTargets,
+    setTargetingMode,
+    clearTargetingMode,
     nextPhase,
     prevPhase,
     setPhase,

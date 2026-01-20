@@ -49,10 +49,10 @@ import {
   handleTriggerNoTarget,
   handleTriggerFloatingText,
   handleTriggerFloatingTextBatch,
-  handleSyncHighlights,
-  handleSyncValidTargets,
   handleTriggerDeckSelection,
-  handleTriggerHandCardSelection
+  handleTriggerHandCardSelection,
+  handleSetTargetingMode,
+  handleClearTargetingMode
 } from '../handlers/visualEffects.js';
 import {
   handleUpdateDeckData
@@ -208,8 +208,8 @@ function routeMessage(ws, data) {
     'TRIGGER_NO_TARGET': handleTriggerNoTarget,
     'TRIGGER_DECK_SELECTION': handleTriggerDeckSelection,
     'TRIGGER_HAND_CARD_SELECTION': handleTriggerHandCardSelection,
-    'SYNC_HIGHLIGHTS': handleSyncHighlights,
-    'SYNC_VALID_TARGETS': handleSyncValidTargets,
+    'SET_TARGETING_MODE': handleSetTargetingMode,
+    'CLEAR_TARGETING_MODE': handleClearTargetingMode,
     'EXIT_GAME': handleExitGame,
     'FORCE_SYNC': handleForceSync,
     'SYNC_GAME': handleSyncGame,

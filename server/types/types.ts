@@ -200,6 +200,21 @@ export interface FloatingTextData {
 }
 
 /**
+ * Targeting mode data - shared across all clients for synchronized targeting UI
+ * When a player activates an ability/command that requires targeting, this data is broadcast
+ * so all players can see the valid targets highlighted in the activating player's color.
+ */
+export interface TargetingModeData {
+    playerId: number; // The player whose turn it is to select a target
+    action: AbilityAction; // The action defining targeting constraints
+    sourceCoords?: { row: number; col: number }; // Source card coordinates (if applicable)
+    timestamp: number; // For uniqueness and timeout
+    boardTargets?: {row: number, col: number}[]; // Valid board targets (pre-calculated)
+    handTargets?: { playerId: number, cardIndex: number }[]; // Valid hand targets (pre-calculated)
+    isDeckSelectable?: boolean; // Whether deck is a valid target
+}
+
+/**
  * Represents the complete state of the game at any given moment.
  */
 export interface GameState {
@@ -236,6 +251,7 @@ export interface GameState {
   // Visual Effects (client-side only, synchronized via gameState)
   deckSelections?: DeckSelectionData[]; // Deck selection effects
   handCardSelections?: HandCardSelectionData[]; // Hand card selection effects
+  targetingMode?: TargetingModeData | null; // Active targeting mode (shared across all clients)
 
   // Server-side auto-draw tracking for Setup phase
   autoDrawnPlayers?: number[]; // Player IDs who have already auto-drawn this Setup phase

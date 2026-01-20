@@ -1,5 +1,5 @@
 import React, { memo, useMemo, useCallback, useState } from 'react'
-import type { Board, GridSize, DragItem, DropTarget, Card as CardType, PlayerColor, HighlightData, FloatingTextData } from '@/types'
+import type { Board, GridSize, DragItem, DropTarget, Card as CardType, PlayerColor, HighlightData, FloatingTextData, TargetingModeData } from '@/types'
 import { Card } from './Card'
 import { PLAYER_COLORS, FLOATING_TEXT_COLORS, PLAYER_COLOR_RGB } from '@/constants'
 import { hasReadyAbilityInCurrentPhase } from '@/utils/autoAbilities'
@@ -31,9 +31,9 @@ interface GameBoardProps {
   disableActiveHighlights?: boolean;
   preserveDeployAbilities?: boolean;
   activeFloatingTexts?: FloatingTextData[];
-  highlights?: HighlightData[];
   abilitySourceCoords?: { row: number, col: number } | null;
   abilityCheckKey?: number;
+  targetingMode?: TargetingModeData | null; // Shared targeting mode from gameState
 }
 
 const GridCell = memo<{
@@ -58,19 +58,21 @@ const GridCell = memo<{
   onCardClick?: (card: CardType, boardCoords: { row: number; col: number }) => void;
   onEmptyCellClick?: (boardCoords: { row: number; col: number }) => void;
   isValidTarget?: boolean;
+  isTargetingModeValidTarget?: boolean;
+  targetingModePlayerId?: number;
   showNoTarget?: boolean;
   disableActiveHighlights?: boolean;
   preserveDeployAbilities?: boolean;
   abilitySourceCoords?: { row: number, col: number } | null;
   abilityCheckKey?: number;
-  cellHighlights?: HighlightData[];
-    }>(({
+}>(({
       row, col, cell, isGameStarted, handleDrop, draggedItem, setDraggedItem,
       openContextMenu, playMode, setPlayMode, playerColorMap, localPlayerId,
       onCardDoubleClick, onEmptyCellDoubleClick, imageRefreshVersion, cursorStack,
       currentPhase, activePlayerId, onCardClick, onEmptyCellClick,
-      isValidTarget, showNoTarget, disableActiveHighlights, preserveDeployAbilities,
-      abilitySourceCoords, abilityCheckKey, cellHighlights = [],
+      isValidTarget, isTargetingModeValidTarget, targetingModePlayerId,
+      showNoTarget, disableActiveHighlights, preserveDeployAbilities,
+      abilitySourceCoords, abilityCheckKey,
     }) => {
       const [isOver, setIsOver] = useState(false)
 
@@ -168,8 +170,8 @@ const GridCell = memo<{
         currentPhase ?? 0,
         activePlayerId
       )
+      const hasActiveEffect = isValidTarget || hasReadyAbility
       // Card has active effects (highlight, selection, or ready ability) - should appear above other cards
-      const hasActiveEffect = isValidTarget || (cellHighlights.length > 0) || hasReadyAbility
 
       // Only add cursor pointer for interactive cells - visual highlight comes from shared highlights
       const targetClasses = isInteractive ? 'cursor-pointer z-10' : ''
@@ -210,21 +212,16 @@ const GridCell = memo<{
             </div>
           )}
 
-          {/* Highlights from gameState - show all highlights for this cell */}
-          {cellHighlights.filter(h => {
-            // Show all highlights for this cell (regardless of which player created them)
-            return h.type === 'cell' && h.row === row && h.col === col
-          }).map((highlight, idx) => {
-            const playerColor = playerColorMap.get(highlight.playerId)
-            // Border color: blend between white and owner color (50/50 mix)
-            const rgb = playerColor && PLAYER_COLOR_RGB[playerColor]
-              ? PLAYER_COLOR_RGB[playerColor]
+          {/* Targeting mode highlight - shows valid targets from another player's targeting mode */}
+          {isTargetingModeValidTarget && targetingModePlayerId && (() => {
+            const targetingPlayerColor = playerColorMap.get(targetingModePlayerId)
+            const rgb = targetingPlayerColor && PLAYER_COLOR_RGB[targetingPlayerColor]
+              ? PLAYER_COLOR_RGB[targetingPlayerColor]
               : { r: 37, g: 99, b: 235 }
             const glowRgb = calculateGlowColor(rgb)
-            // Border color: white, gradient background like card ready ability
             return (
               <div
-                key={`highlight-${idx}-${highlight.timestamp}`}
+                key={`targeting-mode-${targetingModePlayerId}`}
                 className="absolute inset-0 rounded-md pointer-events-none animate-glow-pulse"
                 style={{
                   zIndex: 50,
@@ -235,7 +232,7 @@ const GridCell = memo<{
                 }}
               />
             )
-          })}
+          })()}
 
           {cell.card && (
             <div
@@ -321,14 +318,10 @@ export const GameBoard = memo<GameBoardProps>(({
   disableActiveHighlights,
   preserveDeployAbilities = false,
   activeFloatingTexts,
-  highlights,
   abilitySourceCoords = null,
   abilityCheckKey,
+  targetingMode,
 }) => {
-  // Debug: log highlights when they change
-  React.useEffect(() => {
-    // Highlights are now handled via GridCell props
-  }, [highlights])
 
   const activeBoard = useMemo(() => {
     const totalSize = board.length
@@ -394,7 +387,14 @@ export const GameBoard = memo<GameBoardProps>(({
   const processedCells = useMemo(() => {
     const totalSize = board.length
     const offset = Math.floor((totalSize - activeGridSize) / 2)
-    const validTargetsSet = new Set(validTargets?.map(t => `${t.row}-${t.col}`) || [])
+    // Combine local validTargets with shared targetingMode boardTargets
+    const localTargetsSet = new Set(validTargets?.map((t: {row: number, col: number}) => `${t.row}-${t.col}`) || [])
+    const targetingModeTargetsSet = new Set(targetingMode?.boardTargets?.map((t: {row: number, col: number}) => `${t.row}-${t.col}`) || [])
+
+    // A cell is valid if it's in either local targets OR targeting mode targets
+    const isValidTargetCell = (row: number, col: number) => {
+      return localTargetsSet.has(`${row}-${col}`) || targetingModeTargetsSet.has(`${row}-${col}`)
+    }
 
     return activeBoard.map((rowItems, rowIndex) =>
       rowItems.map((cell, colIndex) => {
@@ -402,19 +402,21 @@ export const GameBoard = memo<GameBoardProps>(({
         const originalColIndex = colIndex + offset
         const cellKey = `${originalRowIndex}-${originalColIndex}`
 
+        const isTargetingModeValidTarget = targetingModeTargetsSet.has(cellKey)
+
         return {
           cellKey,
           originalRowIndex,
           originalColIndex,
           cell,
-          isValidTarget: validTargetsSet.has(cellKey),
+          isValidTarget: isValidTargetCell(originalRowIndex, originalColIndex),
+          isTargetingModeValidTarget,
           isNoTarget: noTargetOverlay?.row === originalRowIndex && noTargetOverlay.col === originalColIndex,
           cellFloatingTexts: activeFloatingTexts?.filter(t => t.row === originalRowIndex && t.col === originalColIndex) || [],
-          cellHighlights: highlights?.filter(h => h.type === 'cell' && h.row === originalRowIndex && h.col === originalColIndex) || [],
         }
       }),
     )
-  }, [activeBoard, board.length, activeGridSize, validTargets, noTargetOverlay, activeFloatingTexts, highlights])
+  }, [activeBoard, board.length, activeGridSize, validTargets, targetingMode, noTargetOverlay, activeFloatingTexts])
 
   return (
     <div className="relative p-2 bg-board-bg rounded-xl h-full aspect-square transition-all duration-300">
@@ -422,7 +424,7 @@ export const GameBoard = memo<GameBoardProps>(({
         {processedCells.map((rowCells) =>
           rowCells.map(({
             cellKey, originalRowIndex, originalColIndex, cell, isValidTarget,
-            isNoTarget, cellFloatingTexts, cellHighlights,
+            isTargetingModeValidTarget, isNoTarget, cellFloatingTexts, 
           }) => (
             <div key={cellKey} className="relative w-full h-full">
               <GridCell
@@ -447,12 +449,13 @@ export const GameBoard = memo<GameBoardProps>(({
                 onCardClick={onCardClick}
                 onEmptyCellClick={onEmptyCellClick}
                 isValidTarget={isValidTarget}
+                isTargetingModeValidTarget={isTargetingModeValidTarget}
+                targetingModePlayerId={targetingMode?.playerId}
                 showNoTarget={isNoTarget}
                 disableActiveHighlights={disableActiveHighlights}
                 preserveDeployAbilities={preserveDeployAbilities}
                 abilitySourceCoords={abilitySourceCoords}
                 abilityCheckKey={abilityCheckKey}
-                cellHighlights={cellHighlights}
               />
               {cellFloatingTexts.map(ft => (
                 <FloatingTextOverlay
@@ -464,54 +467,9 @@ export const GameBoard = memo<GameBoardProps>(({
             </div>
           )),
         )}
+{/* Temporary highlight for flash effects */}      {highlight && (        <div className={`absolute top-2 right-2 bottom-2 left-2 grid ${gridSizeClasses[activeGridSize]} gap-0.5 pointer-events-none z-20`}>          {HighlightContent}        </div>      )}
       </div>
 
-      {/* Highlights from gameState for rows/cols */}
-      {highlights && highlights.length > 0 && (
-        <div className={`absolute top-2 right-2 bottom-2 left-2 grid ${gridSizeClasses[activeGridSize]} gap-0.5 pointer-events-none z-20`}>
-          {highlights.filter(h => h.type === 'row' || h.type === 'col').map((h, idx) => {
-            const playerColor = playerColorMap.get(h.playerId)
-            const outlineClass = (playerColor && PLAYER_COLORS[playerColor]) ? PLAYER_COLORS[playerColor].outline : 'outline-yellow-400'
-            const baseClasses = `outline outline-[8px] ${outlineClass} rounded-lg`
-            const totalSize = board.length
-            const offset = Math.floor((totalSize - activeGridSize) / 2)
-
-            if (h.type === 'row' && h.row !== undefined && h.row >= offset && h.row < offset + activeGridSize) {
-              const gridRow = h.row - offset + 1
-              return (
-                <div
-                  key={`highlight-row-${idx}-${h.timestamp}`}
-                  className={baseClasses}
-                  style={{
-                    gridArea: `${gridRow} / 1 / ${gridRow + 1} / ${activeGridSize + 1}`,
-                  }}
-                />
-              )
-            }
-
-            if (h.type === 'col' && h.col !== undefined && h.col >= offset && h.col < offset + activeGridSize) {
-              const gridCol = h.col - offset + 1
-              return (
-                <div
-                  key={`highlight-col-${idx}-${h.timestamp}`}
-                  className={baseClasses}
-                  style={{
-                    gridArea: `1 / ${gridCol} / ${activeGridSize + 1} / ${gridCol + 1}`,
-                  }}
-                />
-              )
-            }
-            return null
-          })}
-        </div>
-      )}
-
-      {/* Legacy highlight for backwards compatibility */}
-      {highlight && !highlights?.some(h => h.type === highlight.type && h.row === highlight.row && h.col === highlight.col) && (
-        <div className={`absolute top-2 right-2 bottom-2 left-2 grid ${gridSizeClasses[activeGridSize]} gap-0.5 pointer-events-none z-20`}>
-          {HighlightContent}
-        </div>
-      )}
     </div>
   )
 })

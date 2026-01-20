@@ -309,7 +309,7 @@ export const sr: TranslationResource = {
     },
     dataLiberator: {
       name: 'Oslobodilac Podataka',
-      ability: 'Pass: Karte s vašim žetonima Eksploita donose vam poene.\nDeploy: Pomešta žeton Eksploita na bilo koju kartu.',
+      ability: 'Pass (zahteva Podršku): Karte s vašim žetonima Eksploita donose vam poene.\nDeploy: Pomešta žeton Eksploita na bilo koju kartu.',
       flavorText: '- "Informacija ne želi da bude slobodna. Ona mora biti."',
     },
     cautiousAvenger: {
