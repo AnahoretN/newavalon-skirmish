@@ -306,9 +306,13 @@ export const useAppCounters = ({
                 if (cursorStack.sourceCoords && cursorStack.sourceCoords.row >= 0) {
                   markAbilityUsed(cursorStack.sourceCoords, cursorStack.isDeployAbility)
                 }
-                if (cursorStack.count > amountToDrop) {
-                  setCursorStack(prev => prev ? ({ ...prev, count: prev.count - amountToDrop }) : null)
+                // Calculate remaining count AFTER this drop
+                const remainingCount = cursorStack.count - amountToDrop
+
+                if (remainingCount > 0) {
+                  setCursorStack(prev => prev ? ({ ...prev, count: remainingCount }) : null)
                 } else {
+                  // Stack is now empty - clear it and execute chained action
                   if (cursorStack.chainedAction) {
                     const chained = { ...cursorStack.chainedAction }
                     if (cursorStack.recordContext) {
