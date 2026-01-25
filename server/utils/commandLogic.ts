@@ -65,10 +65,11 @@ export const getCommandAction = (
       })
     }
     // Option 1: Draw X cards (X = Total Aim).
+    // baseCount: 1 accounts for the Aim token being placed by this command's main action
     else if (optionIndex === 1) {
       actions.push({
         type: 'GLOBAL_AUTO_APPLY',
-        payload: { dynamicResource: { type: 'draw', factor: 'Aim', ownerId: localPlayerId } },
+        payload: { dynamicResource: { type: 'draw', factor: 'Aim', ownerId: localPlayerId, baseCount: 1 } },
         sourceCard: card,
       })
     }
@@ -405,8 +406,14 @@ export const getCommandAction = (
 
   // Set originalOwnerId for all actions to preserve command card ownership
   // This ensures highlights and effects use the correct owner color even in multi-step commands
+  // If card.ownerId is not set (e.g., for command cards in announced zone), use the computed localPlayerId
+  const effectiveOwnerId = card.ownerId || localPlayerId
   actions.forEach(action => {
-    action.originalOwnerId = card.ownerId
+    action.originalOwnerId = effectiveOwnerId
+    // Also ensure sourceCard has ownerId set (for dynamicResource calculations)
+    if (action.sourceCard && !action.sourceCard.ownerId) {
+      action.sourceCard.ownerId = effectiveOwnerId
+    }
   })
 
   return actions

@@ -1180,8 +1180,8 @@ const App = memo(function App() {
         }
       }
 
-      const calculateDynamicCount = (factor: string, ownerId: number) => {
-        let count = 0
+      const calculateDynamicCount = (factor: string, ownerId: number, baseCount: number = 0) => {
+        let count = baseCount
         if (factor === 'Aim') {
           gameState.board.forEach(row => row.forEach(cell => {
             if (cell.card?.statuses?.some(s => s.type === 'Aim' && s.addedByPlayerId === ownerId)) {
@@ -1222,11 +1222,13 @@ const App = memo(function App() {
             }
           }
         } else if (actionToProcess.payload?.dynamicResource) {
-          const { type, factor, ownerId } = actionToProcess.payload.dynamicResource
-          const count = calculateDynamicCount(factor, ownerId)
+          const { type, factor, baseCount } = actionToProcess.payload.dynamicResource
+          // Use sourceCard.ownerId (command card owner) instead of payload.ownerId to ensure we count tokens owned by the command player
+          const resourceOwnerId = actionToProcess.sourceCard?.ownerId ?? actionToProcess.payload.dynamicResource.ownerId
+          const count = calculateDynamicCount(factor, resourceOwnerId, baseCount)
           if (type === 'draw' && count > 0) {
             for (let i = 0; i < count; i++) {
-              drawCard(ownerId)
+              drawCard(resourceOwnerId)
             }
           }
         } else if (actionToProcess.payload?.resourceChange) {
