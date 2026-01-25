@@ -14,6 +14,7 @@ interface UseAppCountersProps {
     cursorStack: CursorStackState | null;
     setCursorStack: React.Dispatch<React.SetStateAction<CursorStackState | null>>;
     setAbilityMode: React.Dispatch<React.SetStateAction<AbilityAction | null>>;
+    triggerTargetSelection: (location: 'board' | 'hand' | 'deck', boardCoords?: { row: number; col: number }, handTarget?: { playerId: number; cardIndex: number }) => void;
 }
 
 export const useAppCounters = ({
@@ -28,6 +29,7 @@ export const useAppCounters = ({
   cursorStack,
   setCursorStack,
   setAbilityMode,
+  triggerTargetSelection,
 }: UseAppCountersProps) => {
   const cursorFollowerRef = useRef<HTMLDivElement>(null)
   const mousePos = useRef({ x: 0, y: 0 })
@@ -256,6 +258,8 @@ export const useAppCounters = ({
                       statusType: cursorStack.type,
                       count: 1,
                     }, { target: 'board', boardCoords: { row, col } })
+                    // Trigger target selection effect
+                    triggerTargetSelection('board', { row, col })
                   }
 
                   if (cursorStack.sourceCoords && cursorStack.sourceCoords.row >= 0) {
@@ -288,6 +292,8 @@ export const useAppCounters = ({
                   replaceStatusType: cursorStack.replaceStatus ? cursorStack.requiredTargetStatus : undefined, // For Censor: Exploit -> Stun
                   count: amountToDrop,
                 }, { target: 'board', boardCoords: { row, col } })
+                // Trigger target selection effect
+                triggerTargetSelection('board', { row, col })
 
                 if (cursorStack.recordContext) {
                   setCommandContext(prev => ({
@@ -374,7 +380,7 @@ export const useAppCounters = ({
     return () => {
       window.removeEventListener('mouseup', handleGlobalMouseUp)
     }
-  }, [cursorStack, handleDrop, gameState, localPlayerId, requestCardReveal, markAbilityUsed, interactionLock, setCommandContext, onAction, setCursorStack, setAbilityMode])
+  }, [cursorStack, handleDrop, gameState, localPlayerId, requestCardReveal, markAbilityUsed, interactionLock, setCommandContext, onAction, setCursorStack, setAbilityMode, triggerTargetSelection])
 
   // Handle right-click to cancel token placement mode
   useEffect(() => {

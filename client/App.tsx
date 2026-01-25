@@ -446,6 +446,7 @@ const App = memo(function App() {
     cursorStack,
     setCursorStack,
     setAbilityMode,
+    triggerTargetSelection,
   })
 
   const isSpectator = useMemo(
