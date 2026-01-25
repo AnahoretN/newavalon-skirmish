@@ -1,5 +1,6 @@
 import React, { memo, useMemo, useCallback, useState } from 'react'
-import type { Board, GridSize, DragItem, DropTarget, Card as CardType, PlayerColor, HighlightData, FloatingTextData, TargetingModeData } from '@/types'
+import type { Board, GridSize, DragItem, DropTarget, Card as CardType, PlayerColor, HighlightData, FloatingTextData, TargetingModeData, TargetSelectionEffect } from '@/types'
+import { TargetSelectionEffect as TargetSelectionEffectComponent } from './TargetSelectionEffect'
 import { Card } from './Card'
 import { PLAYER_COLORS, FLOATING_TEXT_COLORS, PLAYER_COLOR_RGB } from '@/constants'
 import { hasReadyAbilityInCurrentPhase } from '@/utils/autoAbilities'
@@ -34,6 +35,7 @@ interface GameBoardProps {
   abilitySourceCoords?: { row: number, col: number } | null;
   abilityCheckKey?: number;
   targetingMode?: TargetingModeData | null; // Shared targeting mode from gameState
+  targetSelectionEffects?: TargetSelectionEffect[];
 }
 
 const GridCell = memo<{
@@ -331,6 +333,7 @@ export const GameBoard = memo<GameBoardProps>(({
   abilitySourceCoords = null,
   abilityCheckKey,
   targetingMode,
+  targetSelectionEffects,
 }) => {
 
   const activeBoard = useMemo(() => {
@@ -423,10 +426,11 @@ export const GameBoard = memo<GameBoardProps>(({
           isTargetingModeValidTarget,
           isNoTarget: noTargetOverlay?.row === originalRowIndex && noTargetOverlay.col === originalColIndex,
           cellFloatingTexts: activeFloatingTexts?.filter(t => t.row === originalRowIndex && t.col === originalColIndex) || [],
+          cellTargetSelectionEffects: targetSelectionEffects?.filter(e => e.location === 'board' && e.boardCoords?.row === originalRowIndex && e.boardCoords?.col === originalColIndex) || [],
         }
       }),
     )
-  }, [activeBoard, board.length, activeGridSize, validTargets, targetingMode, noTargetOverlay, activeFloatingTexts])
+  }, [activeBoard, board.length, activeGridSize, validTargets, targetingMode, noTargetOverlay, activeFloatingTexts, targetSelectionEffects])
 
   return (
     <div className="relative p-2 bg-board-bg rounded-xl h-full aspect-square transition-all duration-300">
@@ -434,7 +438,8 @@ export const GameBoard = memo<GameBoardProps>(({
         {processedCells.map((rowCells) =>
           rowCells.map(({
             cellKey, originalRowIndex, originalColIndex, cell, isValidTarget,
-            isTargetingModeValidTarget, isNoTarget, cellFloatingTexts, 
+            isTargetingModeValidTarget, isNoTarget, cellFloatingTexts,
+            cellTargetSelectionEffects,
           }) => (
             <div key={cellKey} className="relative w-full h-full">
               <GridCell
@@ -473,6 +478,12 @@ export const GameBoard = memo<GameBoardProps>(({
                   key={ft.id || `${ft.row}-${ft.col}-${ft.timestamp}`}
                   textData={ft}
                   playerColorMap={playerColorMap}
+                />
+              ))}
+              {cellTargetSelectionEffects.map(effect => (
+                <TargetSelectionEffectComponent
+                  key={effect.timestamp}
+                  effect={effect}
                 />
               ))}
             </div>

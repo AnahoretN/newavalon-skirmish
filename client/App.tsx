@@ -33,6 +33,7 @@ import type {
   CommandContext,
   CounterSelectionData,
   AbilityAction,
+  TargetSelectionEffect,
 } from './types'
 import { GameMode, DeckType } from './types'
 import { STATUS_ICONS, STATUS_DESCRIPTIONS } from './constants'
@@ -198,6 +199,7 @@ const App = memo(function App() {
 
   const [highlight, setHighlight] = useState<HighlightData | null>(null)
   const [activeFloatingTexts, setActiveFloatingTexts] = useState<FloatingTextData[]>([])
+  const [targetSelectionEffects, setTargetSelectionEffects] = useState<TargetSelectionEffect[]>([])
 
   // Track when we last received highlights from server (to prevent clearing them prematurely)
   const [isAutoAbilitiesEnabled, setIsAutoAbilitiesEnabled] = useState(() => {
@@ -277,6 +279,25 @@ const App = memo(function App() {
   const boardContainerRef = useRef<HTMLDivElement>(null)
   const [sidePanelWidth, setSidePanelWidth] = useState<number | undefined>(undefined)
 
+  // Trigger target selection effect (white ripple animation)
+  const triggerTargetSelection = useCallback((location: 'board' | 'hand' | 'deck', boardCoords?: { row: number; col: number }, handTarget?: { playerId: number; cardIndex: number }) => {
+    if (localPlayerId === null) {
+      return
+    }
+    const effect: TargetSelectionEffect = {
+      timestamp: Date.now(),
+      location,
+      boardCoords,
+      handTarget,
+      selectedByPlayerId: localPlayerId,
+    }
+    setTargetSelectionEffects(prev => [...prev, effect])
+    // Auto-remove after 1 second (animation duration)
+    setTimeout(() => {
+      setTargetSelectionEffects(prev => prev.filter(e => e.timestamp !== effect.timestamp))
+    }, 1000)
+  }, [localPlayerId])
+
   const interactionLock = useRef(false)
   // Track sent highlights to avoid duplicate broadcasts
 
@@ -354,6 +375,7 @@ const App = memo(function App() {
     setViewingDiscard,
     setPlayMode,
     triggerNoTarget,
+    triggerTargetSelection,
     setCounterSelectionData,
     interactionLock,
     onAbilityComplete: () => setAbilityCheckKey(prev => prev + 1),
@@ -2181,6 +2203,7 @@ const App = memo(function App() {
               activeFloatingTexts={activeFloatingTexts}
               abilitySourceCoords={abilityMode?.sourceCoords || null}
               abilityCheckKey={abilityCheckKey}
+              targetSelectionEffects={targetSelectionEffects}
             />
           </div>
         </div>

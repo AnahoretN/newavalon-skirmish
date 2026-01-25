@@ -17,7 +17,8 @@ interface UseAppAbilitiesProps {
     commandContext: CommandContext;
     setCommandContext: React.Dispatch<React.SetStateAction<CommandContext>>;
     setViewingDiscard: React.Dispatch<React.SetStateAction<any>>;
-    triggerNoTarget: (coords: { row: number, col: number }) => void;
+    triggerNoTarget: (coords: { row: number; col: number }) => void;
+    triggerTargetSelection: (location: 'board' | 'hand' | 'deck', boardCoords?: { row: number; col: number }, handTarget?: { playerId: number; cardIndex: number }) => void;
     setPlayMode: React.Dispatch<React.SetStateAction<any>>;
     setCounterSelectionData: React.Dispatch<React.SetStateAction<CounterSelectionData | null>>;
     interactionLock: React.MutableRefObject<boolean>;
@@ -60,6 +61,7 @@ export const useAppAbilities = ({
   setCommandContext,
   setViewingDiscard,
   triggerNoTarget,
+  triggerTargetSelection,
   setPlayMode,
   setCounterSelectionData,
   interactionLock,
@@ -1145,6 +1147,9 @@ export const useAppAbilities = ({
           count: payload.count || 1,
         }, { target: 'board', boardCoords })
 
+        // Trigger target selection effect
+        triggerTargetSelection('board', boardCoords)
+
         if (abilityMode.recordContext) {
           setCommandContext({ lastMovedCardCoords: boardCoords, lastMovedCardId: card.id })
         }
@@ -1158,6 +1163,8 @@ export const useAppAbilities = ({
             recordContext: true,
           }
           handleActionExecution(nextAction, boardCoords)
+          // Trigger target selection effect for chained action
+          setTimeout(() => triggerTargetSelection('board', boardCoords), 100)
           if (nextAction.type !== 'ENTER_MODE') {
             setAbilityMode(null)
           }
@@ -1622,7 +1629,7 @@ export const useAppAbilities = ({
     if (!abilityMode && !cursorStack) {
       activateAbility(card, boardCoords)
     }
-  }, [abilityMode, cursorStack, gameState, localPlayerId, interactionLock, handleLineSelection, moveItem, markAbilityUsed, setAbilityMode, setCursorStack, setPlayMode, removeBoardCardStatus, removeBoardCardStatusByOwner, addBoardCardStatus, modifyBoardCardPower, swapCards, transferStatus, transferAllCounters, updatePlayerScore, drawCard, activateAbility, setCounterSelectionData, resetDeployStatus, removeStatusByType, handleActionExecution, setCommandContext, triggerFloatingText])
+  }, [abilityMode, cursorStack, gameState, localPlayerId, interactionLock, handleLineSelection, moveItem, markAbilityUsed, setAbilityMode, setCursorStack, setPlayMode, removeBoardCardStatus, removeBoardCardStatusByOwner, addBoardCardStatus, modifyBoardCardPower, swapCards, transferStatus, transferAllCounters, updatePlayerScore, drawCard, activateAbility, setCounterSelectionData, resetDeployStatus, removeStatusByType, handleActionExecution, setCommandContext, triggerFloatingText, triggerTargetSelection])
 
   const handleEmptyCellClick = useCallback((boardCoords: { row: number, col: number }) => {
     if (interactionLock.current) {
