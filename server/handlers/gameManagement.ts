@@ -317,9 +317,22 @@ export function handleUpdateState(ws, data) {
               const clientHistoryIsLonger = !isTurnTransition && clientPlayer.boardHistory &&
                 clientPlayer.boardHistory.length > (serverPlayerAfterDraw.boardHistory?.length || 0);
 
+              // CRITICAL FIX: When we just drew for this player, client's deck is stale
+              // If we merge client's deck, the drawn card will be added back
+              // Solution: filter out the drawn card from client's deck before merging
+              let clientDeckToMerge = clientPlayer.deck || [];
+              if (justDrewForThisPlayer && serverPlayerAfterDraw.hand.length > 0) {
+                // The most recently drawn card is at the end of hand
+                const drawnCard = serverPlayerAfterDraw.hand[serverPlayerAfterDraw.hand.length - 1];
+                // Remove this card from client's deck before merge (it's stale)
+                clientDeckToMerge = clientDeckToMerge.filter((c: any) =>
+                  !(c.id === drawnCard.id && c.ownerId === drawnCard.ownerId)
+                );
+              }
+
               // Merge hand, deck, and discard - combining statuses and adding new cards from client
               const mergedHand = mergeCardList(serverPlayerAfterDraw.hand, clientPlayer.hand);
-              const mergedDeck = mergeCardList(serverPlayerAfterDraw.deck || [], clientPlayer.deck || []);
+              const mergedDeck = mergeCardList(serverPlayerAfterDraw.deck || [], clientDeckToMerge);
               const mergedDiscard = mergeCardList(serverPlayerAfterDraw.discard || [], clientPlayer.discard || []);
 
               mergedPlayers.push({
