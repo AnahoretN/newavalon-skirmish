@@ -227,7 +227,13 @@ const clearGameState = () => {
   localStorage.removeItem(RECONNECTION_DATA_KEY)
 }
 
-export const useGameState = () => {
+interface UseGameStateProps {
+  abilityMode?: AbilityAction | null;
+  setAbilityMode?: React.Dispatch<React.SetStateAction<AbilityAction | null>>;
+}
+
+export const useGameState = (props: UseGameStateProps = {}) => {
+  const { abilityMode, setAbilityMode } = props;
   const createDeck = useCallback((deckType: DeckType, playerId: number, playerName: string): Card[] => {
     const deck = decksData[deckType]
     if (!deck) {
@@ -1586,6 +1592,14 @@ export const useGameState = () => {
   }, [])
 
   const setPhase = useCallback((phaseIndex: number) => {
+    // Clear ability mode if it's a line selection mode and phase is changing
+    if (abilityMode && setAbilityMode) {
+      const lineSelectionModes = ['SCORE_LAST_PLAYED_LINE', 'SELECT_LINE_END', 'INTEGRATOR_LINE_SELECT', 'ZIUS_LINE_SELECT'];
+      if (lineSelectionModes.includes(abilityMode.mode)) {
+        setAbilityMode(null);
+      }
+    }
+
     updateState(currentState => {
       if (!currentState.isGameStarted) {
         return currentState
@@ -1595,7 +1609,7 @@ export const useGameState = () => {
         currentPhase: Math.max(0, Math.min(phaseIndex, TURN_PHASES.length - 1)),
       }
     })
-  }, [updateState])
+  }, [updateState, abilityMode, setAbilityMode])
 
   // Helper function to complete a full turn (handles player rotation, victory check, etc.)
   const completeTurn = useCallback((state: GameState, finishingPlayerId: number | undefined): GameState => {

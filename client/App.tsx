@@ -49,7 +49,7 @@ const COUNTER_BG_URL = 'https://res.cloudinary.com/dxxh6meej/image/upload/v17636
 
 const App = memo(function App() {
   const { t } = useLanguage()
-  const gameStateHook = useGameState()
+  const gameStateHook = useGameState({ abilityMode, setAbilityMode })
 
   const {
     gameState,
