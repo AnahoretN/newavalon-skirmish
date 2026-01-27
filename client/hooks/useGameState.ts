@@ -8,7 +8,7 @@ import { decksData, countersDatabase, rawJsonData, getCardDefinitionByName, getC
 import { createInitialBoard, recalculateBoardStatuses } from '@server/utils/boardUtils'
 import { calculateValidTargets } from '@server/utils/targeting'
 import { logger } from '../utils/logger'
-import { initializeReadyStatuses, removeAllReadyStatuses, resetPhaseReadyStatuses } from '../utils/autoAbilities'
+import { initializeReadyStatuses, removeAllReadyStatuses } from '../utils/autoAbilities'
 import { deepCloneState, TIMING } from '../utils/common'
 
 // Helper to determine the correct WebSocket URL
@@ -1465,6 +1465,10 @@ export const useGameState = (props: UseGameStateProps = {}) => {
       if (!currentState.isGameStarted) {
         return currentState
       }
+      // Block score changes after round has ended
+      if (currentState.isRoundEndModalOpen) {
+        return currentState
+      }
 
       const newState: GameState = deepCloneState(currentState)
       const player = newState.players.find(p => p.id === playerId)
@@ -1652,17 +1656,8 @@ export const useGameState = (props: UseGameStateProps = {}) => {
     }
     newState.activePlayerId = nextPlayerId ?? null
 
-    // Reset phase-specific ready statuses for the new active player
-    if (nextPlayerId !== undefined) {
-      newState.board.forEach(row => {
-        row.forEach(cell => {
-          const card = cell.card
-          if (card && card.ownerId === nextPlayerId) {
-            resetPhaseReadyStatuses(card, nextPlayerId)
-          }
-        })
-      })
-    }
+    // Note: Phase-specific ready statuses (readySetup, readyCommit) are now reset
+    // during the Draw phase on the server side, not here when switching active players.
 
     // New turn starting - clear auto-draw tracking and increment turn number
     if (newState.startingPlayerId !== undefined && nextPlayerId === newState.startingPlayerId) {
@@ -1759,17 +1754,8 @@ export const useGameState = (props: UseGameStateProps = {}) => {
       }
 
       // Normal phase transitions (0->1, 1->2, 3->0 when not wrapping)
-      // Reset phase-specific ready statuses when entering Setup or Commit phases
-      if (activePlayerId !== null && (nextPhaseIndex === 0 || nextPhaseIndex === 2)) {
-        newState.board.forEach(row => {
-          row.forEach(cell => {
-            const card = cell.card
-            if (card && card.ownerId === activePlayerId) {
-              resetPhaseReadyStatuses(card, activePlayerId)
-            }
-          })
-        })
-      }
+      // Note: Ready statuses are only reset at the start of a player's turn (see setNextActivePlayer),
+      // not when entering phases within the same turn. This prevents abilities from being used multiple times.
 
       // Handle Resurrected expiration for normal phase transitions
       newState.board.forEach(row => {
@@ -2857,7 +2843,7 @@ export const useGameState = (props: UseGameStateProps = {}) => {
       const newState: GameState = deepCloneState(currentState)
       const fromCard = newState.board[fromCoords.row][fromCoords.col].card
       const toCard = newState.board[toCoords.row][toCoords.col].card
-      const excludedTypes = ['Support', 'Threat']
+      const excludedTypes = ['Support', 'Threat', 'LastPlayed']
       if (fromCard && toCard && fromCard.statuses) {
         const statusesToMove = fromCard.statuses.filter(s => !excludedTypes.includes(s.type))
         const statusesToKeep = fromCard.statuses.filter(s => excludedTypes.includes(s.type))
@@ -2940,6 +2926,10 @@ export const useGameState = (props: UseGameStateProps = {}) => {
     if (!currentState.isGameStarted) {
       return
     }
+    // Block scoring after round has ended
+    if (currentState.isRoundEndModalOpen) {
+      return
+    }
 
     const hasActiveLiberator = currentState.board.some(row =>
       row.some(cell =>
@@ -3006,6 +2996,10 @@ export const useGameState = (props: UseGameStateProps = {}) => {
   const scoreDiagonal = useCallback((r1: number, c1: number, r2: number, c2: number, playerId: number, bonusType?: 'point_per_support' | 'draw_per_support') => {
     const currentState = gameStateRef.current
     if (!currentState.isGameStarted) {
+      return
+    }
+    // Block scoring after round has ended
+    if (currentState.isRoundEndModalOpen) {
       return
     }
 

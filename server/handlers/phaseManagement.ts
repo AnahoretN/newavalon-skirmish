@@ -7,6 +7,7 @@ import { logger } from '../utils/logger.js';
 import { getGameState } from '../services/gameState.js';
 import { broadcastToGame } from '../services/websocket.js';
 import { logGameAction as logAction, GameActions } from '../utils/gameLogger.js';
+import { resetReadyStatusesForTurn } from '../utils/autoAbilities.js';
 
 /**
  * Calculate the victory point threshold for a given round
@@ -296,6 +297,10 @@ export function performDrawPhase(gameState: any): void {
       cardsInHand: activePlayer.hand.length
     }).catch();
   }
+
+  // Reset phase-specific ready statuses (readySetup, readyCommit) for the active player
+  // This happens during Draw phase, before entering Setup phase
+  resetReadyStatusesForTurn(gameState, gameState.activePlayerId);
 
   // Transition to Setup phase
   gameState.currentPhase = 0;

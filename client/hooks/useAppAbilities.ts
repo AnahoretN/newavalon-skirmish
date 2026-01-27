@@ -1157,8 +1157,10 @@ export const useAppAbilities = ({
         if (payload.chainedAction) {
           const nextAction: AbilityAction = {
             ...payload.chainedAction,
-            sourceCard: card,
-            sourceCoords: boardCoords,
+            // Only override sourceCard/sourceCoords if not already set in chainedAction
+            // This preserves the original source card (e.g., Zius) for correct highlight colors
+            sourceCard: payload.chainedAction.sourceCard ?? card,
+            sourceCoords: payload.chainedAction.sourceCoords ?? boardCoords,
             isDeployAbility: isDeployAbility,
             recordContext: true,
           }
@@ -1451,7 +1453,7 @@ export const useAppAbilities = ({
           return
         }
         transferAllCounters(boardCoords, sourceCoords)
-        markAbilityUsed(sourceCoords, isDeployAbility)
+        markAbilityUsed(sourceCoords, isDeployAbility, false, abilityMode.readyStatusToRemove)
         setTimeout(() => setAbilityMode(null), TIMING.MODE_CLEAR_DELAY)
         return
       }
