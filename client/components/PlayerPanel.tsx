@@ -197,7 +197,7 @@ const RemoteScore: React.FC<{ score: number, onChange: (delta: number) => void, 
   }, [score])
 
   const handleScoreChange = (delta: number) => {
-    if (!canEdit) return
+    if (!canEdit) {return;}
 
     // Immediately update local accumulation (shown separately, not added to main score)
     const newDelta = pendingDeltaRef.current + delta
