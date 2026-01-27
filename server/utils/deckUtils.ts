@@ -111,7 +111,7 @@ export function createNewPlayer(id: number, isDummy = false): any {
   const colorIndex = (id - 1) % PLAYER_COLORS.length;
   const playerColor = PLAYER_COLORS[colorIndex] || PLAYER_COLORS[0];
 
-  const newPlayer = {
+  const newPlayer: any = {
     id,
     name: isDummy ? `Dummy ${id - 1}` : `Player ${id}`,
     score: 0,

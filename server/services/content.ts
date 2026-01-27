@@ -11,10 +11,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // In-memory storage for content
-let cardDatabase = {};
-let tokenDatabase = {};
-let deckFiles = [];
-let countersDatabase = {};
+let cardDatabase: Record<string, any> = {};
+let tokenDatabase: Record<string, any> = {};
+let deckFiles: any[] = [];
+let countersDatabase: Record<string, any> = {};
 
 /**
  * Initialize content database from JSON file
@@ -54,7 +54,7 @@ export async function initializeContent() {
     const data = JSON.parse(rawData);
 
     // Process ability text to convert literal \n to actual newlines
-    const processAbilityText = (text) => {
+    const processAbilityText = (text: string): string => {
       if (typeof text !== 'string') return text;
       return text.replace(/\\n/g, '\n');
     };
@@ -80,7 +80,7 @@ export async function initializeContent() {
 
     logger.info(`Loaded content from ${contentPath}: ${Object.keys(cardDatabase).length} cards, ${Object.keys(tokenDatabase).length} tokens, ${deckFiles.length} deck files`);
   } catch (error) {
-    logger.error('Failed to initialize content database', error);
+    logger.error('Failed to initialize content database', error as Error);
     throw error;
   }
 }
@@ -88,21 +88,21 @@ export async function initializeContent() {
 /**
  * Get card definition by ID
  */
-export function getCardDefinition(cardId) {
+export function getCardDefinition(cardId: string): any {
   return cardDatabase[cardId] || null;
 }
 
 /**
  * Get token definition by ID
  */
-export function getTokenDefinition(tokenId) {
+export function getTokenDefinition(tokenId: string): any {
   return tokenDatabase[tokenId] || null;
 }
 
 /**
  * Get counter definition by ID
  */
-export function getCounterDefinition(counterId) {
+export function getCounterDefinition(counterId: string): any {
   return countersDatabase[counterId] || null;
 }
 
@@ -116,10 +116,10 @@ export function getDeckFiles() {
 /**
  * Update content database (for development/hot reload)
  */
-export async function updateContent(newContent) {
+export async function updateContent(newContent: any) {
   try {
     // Process ability text to convert literal \n to actual newlines
-    const processAbilityText = (text) => {
+    const processAbilityText = (text: string): string => {
       if (typeof text !== 'string') return text;
       return text.replace(/\\n/g, '\n');
     };
@@ -144,7 +144,7 @@ export async function updateContent(newContent) {
 
     logger.info('Content database updated');
   } catch (error) {
-    logger.error('Failed to update content database', error);
+    logger.error('Failed to update content database', error as Error);
     throw error;
   }
 }
@@ -173,20 +173,20 @@ export function getAllCounters() {
 /**
  * Set card database (for deck data updates)
  */
-export function setCardDatabase(cards) {
+export function setCardDatabase(cards: Record<string, any>) {
   cardDatabase = cards;
 }
 
 /**
  * Set token database (for deck data updates)
  */
-export function setTokenDatabase(tokens) {
+export function setTokenDatabase(tokens: Record<string, any>) {
   tokenDatabase = tokens;
 }
 
 /**
  * Set deck files (for deck data updates)
  */
-export function setDeckFiles(decks) {
+export function setDeckFiles(decks: any[]) {
   deckFiles = decks;
 }

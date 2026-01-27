@@ -22,7 +22,7 @@ export const CONFIG = {
  * Validate server configuration
  */
 export function validateConfig() {
-  const requiredEnvVars = [];
+  const requiredEnvVars: string[] = [];
 
   if (requiredEnvVars.some(envVar => !process.env[envVar])) {
     throw new Error(`Missing required environment variables: ${requiredEnvVars.join(', ')}`);

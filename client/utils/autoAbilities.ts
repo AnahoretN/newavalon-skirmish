@@ -27,27 +27,30 @@ export const hasAnyReadyStatus = (card: Card): boolean => {
 /**
  * Gets the ready status that should be used for the current phase
  * Returns null if no ready status is available for this phase
+ *
+ * Priority order (matches server logic):
+ * 1. Setup abilities - ONLY in Setup phase (phase 1)
+ * 2. Commit abilities - ONLY in Commit phase (phase 3)
+ * 3. Deploy abilities - in any other phase (including Main/phase 2, Preparation/phase 0)
  */
 export const getReadyStatusForPhase = (card: Card, phaseIndex: number): string | null => {
-  // Check deploy first (highest priority)
-  if (hasReadyStatus(card, READY_STATUS_DEPLOY)) {
-    return READY_STATUS_DEPLOY
-  }
-
-  // Then check phase-specific ready statuses
-  // Setup abilities only work in Setup phase (phase 0)
-  // Commit abilities only work in Commit phase (phase 2)
-  // Main phase (phase 1) is for manual actions, no phase abilities
-  if (phaseIndex === 0) {
-    // Setup phase only
+  // Priority 1: Setup (ONLY in Setup phase / phase 1)
+  if (phaseIndex === 1) {
     if (hasReadyStatus(card, READY_STATUS_SETUP)) {
       return READY_STATUS_SETUP
     }
-  } else if (phaseIndex === 2) {
-    // Commit phase
+  }
+
+  // Priority 2: Commit (ONLY in Commit phase / phase 3)
+  if (phaseIndex === 3) {
     if (hasReadyStatus(card, READY_STATUS_COMMIT)) {
       return READY_STATUS_COMMIT
     }
+  }
+
+  // Priority 3: Deploy (works in any phase if no phase-specific ability is active)
+  if (hasReadyStatus(card, READY_STATUS_DEPLOY)) {
+    return READY_STATUS_DEPLOY
   }
 
   return null

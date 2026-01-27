@@ -232,7 +232,7 @@ export interface GameState {
   revealRequests: RevealRequest[];
   activePlayerId: number | null; // Aligned with server and client: null when no active player
   startingPlayerId: number | null; // The ID of the player who started the game (Turn 1 Player 1)
-  currentPhase: number; // -1 (hidden Draw phase), 0-3 representing the index in TURN_PHASES (Setup=0, Main=1, Commit=2, Scoring=3)
+  currentPhase: number; // 0 (hidden Preparation phase), 1-4 representing phases (Setup=1, Main=2, Commit=3, Scoring=4)
   isScoringStep: boolean; // True when waiting for the active player to score a line after Commit phase
 
   // Auto-abilities settings

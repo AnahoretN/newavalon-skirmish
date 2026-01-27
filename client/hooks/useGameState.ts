@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { DeckType, GameMode as GameModeEnum } from '../types'
 import type { GameState, Player, Board, GridSize, Card, DragItem, DropTarget, PlayerColor, RevealRequest, CardIdentifier, CustomDeckFile, HighlightData, FloatingTextData, DeckSelectionData, HandCardSelectionData, TargetingModeData, AbilityAction, CommandContext } from '../types'
-import { PLAYER_COLOR_NAMES, TURN_PHASES, MAX_PLAYERS } from '../constants'
+import { PLAYER_COLOR_NAMES, MAX_PLAYERS } from '../constants'
 import { shuffleDeck } from '@shared/utils/array'
 import { decksData, countersDatabase, rawJsonData, getCardDefinitionByName, getCardDefinition, commandCardIds } from '../content'
 import { createInitialBoard, recalculateBoardStatuses } from '@server/utils/boardUtils'
@@ -99,6 +99,13 @@ const syncLastPlayed = (board: Board, player: Player) => {
 // localStorage keys for game state persistence
 const GAME_STATE_KEY = 'avalon_game_state'
 const RECONNECTION_DATA_KEY = 'reconnection_data'
+
+/**
+ * Accumulates score change deltas for each player.
+ * When player score changes rapidly (within 500ms), deltas are accumulated
+ * and sent to server as a single message with the total delta.
+ */
+const scoreDeltaAccumulator = new Map<number, { delta: number, timerId: ReturnType<typeof setTimeout> }>()
 
 /**
  * Sync card data (imageUrl, fallbackImage) from database
@@ -674,8 +681,27 @@ export const useGameState = (props: UseGameStateProps = {}) => {
             return
           }
 
+          // Clear isScoringStep when server broadcasts state with different phase or different active player
+          // This ensures that after turn passing (server-side), the client exits scoring mode
+          const shouldClearScoringStep = currentState.isScoringStep && (
+            syncedData.currentPhase !== currentState.currentPhase ||
+            syncedData.activePlayerId !== currentState.activePlayerId
+          )
+          if (shouldClearScoringStep) {
+            syncedData.isScoringStep = false
+          }
+
           setGameState(syncedData)
           gameStateRef.current = syncedData
+
+          // Log when isRoundEndModalOpen changes
+          if (currentState.isRoundEndModalOpen !== syncedData.isRoundEndModalOpen) {
+            logger.info('[ServerSync] isRoundEndModalOpen changed:', {
+              from: currentState.isRoundEndModalOpen,
+              to: syncedData.isRoundEndModalOpen,
+              currentRound: syncedData.currentRound
+            })
+          }
 
           // Auto-save game state when receiving updates from server
           if (localPlayerIdRef.current !== null && syncedData.gameId) {
@@ -1461,24 +1487,62 @@ export const useGameState = (props: UseGameStateProps = {}) => {
   }, [updateState])
 
   const updatePlayerScore = useCallback((playerId: number, delta: number) => {
-    updateState(currentState => {
-      if (!currentState.isGameStarted) {
-        return currentState
-      }
-      // Block score changes after round has ended
-      if (currentState.isRoundEndModalOpen) {
-        return currentState
-      }
+    // Score changes are accumulated on client and sent to server as a batch
+    // This prevents flooding the server with messages during rapid clicking
+    const currentState = gameStateRef.current
+    if (!currentState.isGameStarted) {
+      logger.warn('[ScoreUpdate] Blocked: game not started')
+      return
+    }
+    if (currentState.isRoundEndModalOpen) {
+      logger.warn('[ScoreUpdate] Blocked: round end modal is open')
+      return
+    }
+    if (delta === 0) {
+      return
+    }
+    if (ws.current?.readyState !== WebSocket.OPEN) {
+      logger.warn('[ScoreUpdate] Blocked: WebSocket not open')
+      return
+    }
 
-      const newState: GameState = deepCloneState(currentState)
-      const player = newState.players.find(p => p.id === playerId)
-
-      if (player) {
-        player.score += delta
-      }
-      return newState
-    })
-  }, [updateState])
+    const existing = scoreDeltaAccumulator.get(playerId)
+    if (existing) {
+      // Clear existing timer and accumulate delta
+      clearTimeout(existing.timerId)
+      const newDelta = existing.delta + delta
+      const timerId = setTimeout(() => {
+        const accumulated = scoreDeltaAccumulator.get(playerId)
+        if (accumulated && ws.current?.readyState === WebSocket.OPEN) {
+          logger.info(`[ScoreUpdate] Sending accumulated delta: player=${playerId}, delta=${accumulated.delta}`)
+          ws.current.send(JSON.stringify({
+            type: 'UPDATE_PLAYER_SCORE',
+            gameId: gameStateRef.current.gameId,
+            playerId: playerId,
+            delta: accumulated.delta
+          }))
+        }
+        scoreDeltaAccumulator.delete(playerId)
+      }, 500)
+      scoreDeltaAccumulator.set(playerId, { delta: newDelta, timerId })
+    } else {
+      // Start new accumulation
+      const timerId = setTimeout(() => {
+        const accumulated = scoreDeltaAccumulator.get(playerId)
+        if (accumulated && ws.current?.readyState === WebSocket.OPEN) {
+          logger.info(`[ScoreUpdate] Sending delta: player=${playerId}, delta=${accumulated.delta}`)
+          ws.current.send(JSON.stringify({
+            type: 'UPDATE_PLAYER_SCORE',
+            gameId: gameStateRef.current.gameId,
+            playerId: playerId,
+            delta: accumulated.delta
+          }))
+        }
+        scoreDeltaAccumulator.delete(playerId)
+      }, 500)
+      scoreDeltaAccumulator.set(playerId, { delta, timerId })
+    }
+  }, [])
 
   const changePlayerDeck = useCallback((playerId: number, deckType: DeckType) => {
     updateState(currentState => {
@@ -1576,6 +1640,20 @@ export const useGameState = (props: UseGameStateProps = {}) => {
 
   const toggleActivePlayer = useCallback((playerId: number) => {
     if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+      // Flush any pending score deltas before toggling active player
+      // This ensures server has up-to-date scores for round end check
+      scoreDeltaAccumulator.forEach((accumulated, pid) => {
+        clearTimeout(accumulated.timerId)
+        logger.info(`[ScoreFlush] Flushing on toggle: player=${pid}, delta=${accumulated.delta}`)
+        ws.current!.send(JSON.stringify({
+          type: 'UPDATE_PLAYER_SCORE',
+          gameId: gameStateRef.current.gameId,
+          playerId: pid,
+          delta: accumulated.delta
+        }))
+      })
+      scoreDeltaAccumulator.clear()
+
       ws.current.send(JSON.stringify({
         type: 'TOGGLE_ACTIVE_PLAYER',
         gameId: gameStateRef.current.gameId,
@@ -1609,8 +1687,9 @@ export const useGameState = (props: UseGameStateProps = {}) => {
         return currentState
       }
 
-      const newPhase = Math.max(0, Math.min(phaseIndex, TURN_PHASES.length - 1))
-      const enteringScoringPhase = newPhase === 3
+      // Allow phases 1-4 (Setup, Main, Commit, Scoring), phase 0 (Preparation) is hidden
+      const newPhase = Math.max(1, Math.min(phaseIndex, 4))
+      const enteringScoringPhase = newPhase === 4
 
       // When entering Scoring phase from any phase, enable scoring step
       // This matches the behavior of nextPhase
@@ -1624,83 +1703,6 @@ export const useGameState = (props: UseGameStateProps = {}) => {
     })
   }, [updateState, abilityMode, setAbilityMode])
 
-  // Helper function to complete a full turn (handles player rotation, victory check, etc.)
-  const completeTurn = useCallback((state: GameState, finishingPlayerId: number | undefined): GameState => {
-    const newState: GameState = deepCloneState(state)
-
-    // Remove Stun from finishing player's cards
-    if (finishingPlayerId !== undefined) {
-      newState.board.forEach(row => {
-        row.forEach(cell => {
-          if (cell.card?.ownerId === finishingPlayerId && cell.card.statuses) {
-            const stunIndex = cell.card.statuses.findIndex(s => s.type === 'Stun')
-            if (stunIndex !== -1) {
-              cell.card.statuses.splice(stunIndex, 1)
-            }
-          }
-        })
-      })
-      // Recalculate statuses after Stun removal
-      newState.board = recalculateBoardStatuses(newState)
-    }
-
-    // Move to next player
-    let nextPlayerId = finishingPlayerId
-    if (nextPlayerId !== undefined) {
-      const sortedPlayers = [...newState.players].sort((a, b) => a.id - b.id)
-      const currentIndex = sortedPlayers.findIndex(p => p.id === nextPlayerId)
-      if (currentIndex !== -1) {
-        const nextIndex = (currentIndex + 1) % sortedPlayers.length
-        nextPlayerId = sortedPlayers[nextIndex].id
-      }
-    }
-    newState.activePlayerId = nextPlayerId ?? null
-
-    // Note: Phase-specific ready statuses (readySetup, readyCommit) are now reset
-    // during the Draw phase on the server side, not here when switching active players.
-
-    // New turn starting - clear auto-draw tracking and increment turn number
-    if (newState.startingPlayerId !== undefined && nextPlayerId === newState.startingPlayerId) {
-      newState.turnNumber += 1
-      newState.autoDrawnPlayers = []
-    }
-
-    // Clear enteredThisTurn flags
-    newState.board.forEach(row => {
-      row.forEach(cell => {
-        if (cell.card) {
-          delete cell.card.enteredThisTurn
-        }
-      })
-    })
-
-    // Handle Resurrected expiration
-    newState.board.forEach(row => {
-      row.forEach(cell => {
-        if (cell.card?.statuses) {
-          const resurrectedIdx = cell.card.statuses.findIndex(s => s.type === 'Resurrected')
-          if (resurrectedIdx !== -1) {
-            const addedBy = cell.card.statuses[resurrectedIdx].addedByPlayerId
-            cell.card.statuses.splice(resurrectedIdx, 1)
-            if (cell.card.baseId !== 'luciusTheImmortal') {
-              cell.card.statuses.push({ type: 'Stun', addedByPlayerId: addedBy })
-              cell.card.statuses.push({ type: 'Stun', addedByPlayerId: addedBy })
-            }
-          }
-        }
-      })
-    })
-
-    // Recalculate again as Resurrected removal/Stun addition changes auras
-    newState.board = recalculateBoardStatuses(newState)
-
-    // Reset to Draw Phase (-1) - server will auto-draw and transition to Setup (0)
-    newState.currentPhase = -1
-    newState.isScoringStep = false
-
-    return newState
-  }, [])
-
   const nextPhase = useCallback(() => {
     // Always clear line selection modes when changing phase
     if (abilityMode && setAbilityMode && abilityMode.mode) {
@@ -1710,19 +1712,42 @@ export const useGameState = (props: UseGameStateProps = {}) => {
       }
     }
 
+    const currentState = gameStateRef.current
+
+    // When at Scoring phase (4) or in scoring step, send NEXT_PHASE to server
+    // Server will handle turn passing and Preparation phase for next player
+    if (currentState.isGameStarted && (currentState.currentPhase === 4 || currentState.isScoringStep)) {
+      // CRITICAL: Flush any pending score deltas BEFORE passing turn
+      // This ensures server has up-to-date scores for round end check
+      if (ws.current?.readyState === WebSocket.OPEN) {
+        // Send all accumulated score deltas immediately
+        scoreDeltaAccumulator.forEach((accumulated, playerId) => {
+          clearTimeout(accumulated.timerId)
+          logger.info(`[ScoreFlush] Flushing pending score: player=${playerId}, delta=${accumulated.delta}`)
+          ws.current!.send(JSON.stringify({
+            type: 'UPDATE_PLAYER_SCORE',
+            gameId: currentState.gameId,
+            playerId: playerId,
+            delta: accumulated.delta
+          }))
+        })
+        scoreDeltaAccumulator.clear()
+
+        // Now send NEXT_PHASE
+        ws.current.send(JSON.stringify({
+          type: 'NEXT_PHASE',
+          gameId: currentState.gameId
+        }))
+      }
+      return
+    }
+
+    // For normal phase transitions (1->2, 2->3, 3->4), use local updateState
     updateState(currentState => {
       if (!currentState.isGameStarted) {
         return currentState
       }
       const newState: GameState = deepCloneState(currentState)
-      const activePlayerId = currentState.activePlayerId
-
-      // Handle finishing the scoring step - complete the full turn
-      if (newState.isScoringStep) {
-        // Just return the result - updateState will send UPDATE_STATE to server
-        // Server will handle the phase transition and draw
-        return completeTurn(newState, activePlayerId ?? undefined)
-      }
 
       const nextPhaseIndex = currentState.currentPhase + 1
 
@@ -1738,24 +1763,13 @@ export const useGameState = (props: UseGameStateProps = {}) => {
         })
       }
 
-      // When transitioning from Commit (phase 2) to Scoring (phase 3), enable scoring step
-      if (nextPhaseIndex === 3 && currentState.currentPhase === 2) {
+      // When transitioning from Commit (phase 3) to Scoring (phase 4), enable scoring step
+      if (nextPhaseIndex === 4 && currentState.currentPhase === 3) {
         // Entering Scoring phase from Commit - enable scoring
         newState.isScoringStep = true
-        newState.currentPhase = 3
+        newState.currentPhase = 4
         return newState
       }
-
-      // After Scoring phase (3), wrap back - end of full turn
-      if (nextPhaseIndex >= TURN_PHASES.length) {
-        // Just return the result - updateState will send UPDATE_STATE to server
-        // Server will handle the phase transition and draw
-        return completeTurn(newState, activePlayerId ?? undefined)
-      }
-
-      // Normal phase transitions (0->1, 1->2, 3->0 when not wrapping)
-      // Note: Ready statuses are only reset at the start of a player's turn (see setNextActivePlayer),
-      // not when entering phases within the same turn. This prevents abilities from being used multiple times.
 
       // Handle Resurrected expiration for normal phase transitions
       newState.board.forEach(row => {
@@ -1779,7 +1793,7 @@ export const useGameState = (props: UseGameStateProps = {}) => {
       newState.currentPhase = nextPhaseIndex
       return newState
     })
-  }, [updateState, completeTurn, abilityMode, setAbilityMode])
+  }, [updateState, abilityMode, setAbilityMode])
 
   const prevPhase = useCallback(() => {
     updateState(currentState => {
@@ -1796,26 +1810,35 @@ export const useGameState = (props: UseGameStateProps = {}) => {
 
       // If in scoring step, exit it AND move to previous phase (Commit or Setup)
       if (currentState.isScoringStep) {
-        return { ...currentState, isScoringStep: false, currentPhase: Math.max(0, currentState.currentPhase - 1) }
+        return { ...currentState, isScoringStep: false, currentPhase: Math.max(1, currentState.currentPhase - 1) }
       }
-      // Otherwise just move to previous phase
+      // Otherwise just move to previous phase (but not below Setup/1)
+      // Preparation (0) is only accessed via turn passing, not manual navigation
       return {
         ...currentState,
-        currentPhase: Math.max(0, currentState.currentPhase - 1),
+        currentPhase: Math.max(1, currentState.currentPhase - 1),
       }
     })
-  }, [updateState])
+  }, [updateState, abilityMode, setAbilityMode])
 
   /**
    * closeRoundEndModal - Close the round end modal and start next round
    * Sends START_NEXT_ROUND message to server which handles score reset and round increment
    */
   const closeRoundEndModal = useCallback(() => {
+    logger.info('[closeRoundEndModal] Sending START_NEXT_ROUND message', {
+      gameId: gameStateRef.current.gameId,
+      wsReadyState: ws.current?.readyState
+    })
     if (ws.current?.readyState === WebSocket.OPEN) {
-      ws.current.send(JSON.stringify({
+      const message = JSON.stringify({
         type: 'START_NEXT_ROUND',
         gameId: gameStateRef.current.gameId,
-      }))
+      })
+      logger.info('[closeRoundEndModal] Sending message:', message)
+      ws.current.send(message)
+    } else {
+      logger.warn('[closeRoundEndModal] WebSocket not open:', ws.current?.readyState)
     }
   }, [])
 
@@ -1868,7 +1891,7 @@ export const useGameState = (props: UseGameStateProps = {}) => {
       }
 
       const shouldAutoTransitionToMain = autoAbilitiesEnabled &&
-        currentState.currentPhase === 0 && // Setup phase
+        currentState.currentPhase === 1 && // Setup phase
         item.source === 'hand' &&
         target.target === 'board' &&
         (item.card.types?.includes('Unit') || item.card.types?.includes('Command'))
@@ -2348,7 +2371,11 @@ export const useGameState = (props: UseGameStateProps = {}) => {
                   if (updatedSpotter.statuses?.some(s => s.type === 'Support')) {
                     const spotterOwner = newState.players.find(p => p.id === spotter.ownerId)
                     if (spotterOwner) {
-                      spotterOwner.score += 2
+                      // CRITICAL: Use updatePlayerScore to properly sync with server
+                      // Score will be updated when server broadcasts back
+                      setTimeout(() => {
+                        updatePlayerScore(spotterOwner.id, 2)
+                      }, 0)
                     }
                   }
                 }
@@ -2364,7 +2391,7 @@ export const useGameState = (props: UseGameStateProps = {}) => {
 
       // Apply auto-phase transition: Setup -> Main when playing a unit or command card from hand
       if (shouldAutoTransitionToMain) {
-        newState.currentPhase = 1 // Main phase
+        newState.currentPhase = 2 // Main phase
       }
 
       return newState
@@ -2983,15 +3010,22 @@ export const useGameState = (props: UseGameStateProps = {}) => {
       triggerFloatingText(scoreEvents)
     }
 
-    updateState(prevState => {
-      const newState: GameState = deepCloneState(prevState)
-      const player = newState.players.find(p => p.id === playerId)
-      if (player) {
-        player.score += totalScore
-      }
-      return newState
-    })
-  }, [updateState, triggerFloatingText])
+    // Update score through server (server-authoritative)
+    updatePlayerScore(playerId, totalScore)
+
+    // Auto-pass after scoring: if in Scoring phase (4) and points were scored,
+    // automatically pass turn to next player after a short delay
+    if (totalScore > 0 && currentState.currentPhase === 4 && currentState.activePlayerId === playerId) {
+      setTimeout(() => {
+        if (ws.current?.readyState === WebSocket.OPEN) {
+          ws.current.send(JSON.stringify({
+            type: 'NEXT_PHASE',
+            gameId: currentState.gameId
+          }))
+        }
+      }, 100) // 100ms delay to show scoring animation
+    }
+  }, [triggerFloatingText, updatePlayerScore])
 
   const scoreDiagonal = useCallback((r1: number, c1: number, r2: number, c2: number, playerId: number, bonusType?: 'point_per_support' | 'draw_per_support') => {
     const currentState = gameStateRef.current
@@ -3052,23 +3086,38 @@ export const useGameState = (props: UseGameStateProps = {}) => {
       triggerFloatingText(scoreEvents)
     }
 
-    updateState(prevState => {
-      const newState: GameState = deepCloneState(prevState)
-      const player = newState.players.find(p => p.id === playerId)
-      if (player) {
-        player.score += totalScore
+    // Update score through server (server-authoritative)
+    updatePlayerScore(playerId, totalScore)
 
-        if (bonusType === 'draw_per_support' && totalBonus > 0 && player.deck.length > 0) {
+    // Handle draw_per_support bonus - needs local state update for hand/deck
+    if (bonusType === 'draw_per_support' && totalBonus > 0) {
+      updateState(prevState => {
+        const newState: GameState = deepCloneState(prevState)
+        const player = newState.players.find(p => p.id === playerId)
+        if (player && player.deck.length > 0) {
           for (let i = 0; i < totalBonus; i++) {
             if (player.deck.length > 0) {
               player.hand.push(player.deck.shift()!)
             }
           }
         }
-      }
-      return newState
-    })
-  }, [updateState, triggerFloatingText])
+        return newState
+      })
+    }
+
+    // Auto-pass after scoring: if in Scoring phase (4) and points were scored,
+    // automatically pass turn to next player after a short delay
+    if (totalScore > 0 && currentState.currentPhase === 4 && currentState.activePlayerId === playerId) {
+      setTimeout(() => {
+        if (ws.current?.readyState === WebSocket.OPEN) {
+          ws.current.send(JSON.stringify({
+            type: 'NEXT_PHASE',
+            gameId: currentState.gameId
+          }))
+        }
+      }, 500) // 500ms delay to show scoring animation
+    }
+  }, [triggerFloatingText, updatePlayerScore, updateState])
 
   return {
     gameState,

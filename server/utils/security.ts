@@ -9,7 +9,7 @@ import crypto from 'crypto';
  * Sanitize string input
  * Removes HTML special characters and control characters
  */
-export function sanitizeString(input, maxLength = CONFIG.MAX_STRING_LENGTH) {
+export function sanitizeString(input: unknown, maxLength = CONFIG.MAX_STRING_LENGTH): string {
   if (typeof input !== 'string') return '';
 
   return input
@@ -21,7 +21,7 @@ export function sanitizeString(input, maxLength = CONFIG.MAX_STRING_LENGTH) {
 /**
  * Sanitize player name
  */
-export function sanitizePlayerName(name) {
+export function sanitizePlayerName(name: unknown): string {
   const sanitized = sanitizeString(name, 20);
   // Remove leading/trailing whitespace and collapse multiple spaces
   return sanitized.trim().replace(/\s+/g, ' ') || 'Anonymous';
@@ -30,7 +30,7 @@ export function sanitizePlayerName(name) {
 /**
  * Validate game state size
  */
-export function validateGameStateSize(gameState) {
+export function validateGameStateSize(gameState: unknown): boolean {
   try {
     const size = JSON.stringify(gameState).length;
     return size <= CONFIG.MAX_GAME_STATE_SIZE;

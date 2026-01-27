@@ -1005,14 +1005,14 @@ const App = memo(function App() {
 
       if (targetingAction && actorId !== null) {
         // Pass pre-calculated boardTargets to avoid recalculating (important for line modes)
-        // IMPORTANT: The visual highlight color should be the owner of the CARD THAT TRIGGERED the mode
+        // IMPORTANT: The visual highlight color should match the ACTIVE PLAYER (dummy's color when controlled by local player)
         // Priority:
         // 1. commandModalCard.ownerId (for command cards - the card that triggered the mode)
         // 2. abilityMode.sourceCoords -> card.ownerId (for abilities on cards - the card with the ability)
         // 3. cursorStack.sourceCard.ownerId (for token stacking - the source card)
-        // 4. localPlayerId (current player on this client)
-        // 5. gameState.activePlayerId (active player in game)
-        // 6. actorId (fallback)
+        // 4. gameState.activePlayerId (active player in game - IMPORTANT for dummy control)
+        // 5. localPlayerId (current player on this client - fallback)
+        // 6. actorId (last resort)
         let targetingPlayerId: number | null = null
 
         // Priority 1: commandModalCard.ownerId (for command cards)
@@ -1036,8 +1036,8 @@ const App = memo(function App() {
           targetingPlayerId = cursorStack.sourceCard.ownerId
         }
 
-        // Fallbacks
-        targetingPlayerId = targetingPlayerId ?? localPlayerId ?? gameState.activePlayerId ?? actorId
+        // Fallbacks - prioritize activePlayerId (for dummy control) over localPlayerId
+        targetingPlayerId = targetingPlayerId ?? gameState.activePlayerId ?? localPlayerId ?? actorId
 
         setTargetingMode(targetingAction, targetingPlayerId, abilityMode?.sourceCoords || cursorStack?.sourceCoords, boardTargets, commandContext)
       }

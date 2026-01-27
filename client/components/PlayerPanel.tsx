@@ -156,27 +156,117 @@ const DropZone: React.FC<{ onDrop: () => void, className?: string, isOverClassNa
   )
 }
 
-const RemoteScore: React.FC<{ score: number, onChange: (delta: number) => void, canEdit: boolean }> = ({ score, onChange, canEdit }) => (
-  <div className="w-full h-full aspect-square bg-gray-800 rounded flex flex-col items-center text-white select-none overflow-hidden">
-    <button
-      onClick={() => canEdit && onChange(1)}
-      disabled={!canEdit}
-      className="h-1/3 w-full flex items-center justify-center bg-gray-700 hover:bg-gray-600 active:bg-gray-500 transition-colors text-base sm:text-xl font-bold disabled:opacity-50 disabled:cursor-default leading-none"
-    >
-            +
-    </button>
-    <div className="h-1/3 flex items-center justify-center font-bold text-base sm:text-xl w-full px-px">
-      {score}
+const RemoteScore: React.FC<{ score: number, onChange: (delta: number) => void, canEdit: boolean }> = ({ score, onChange, canEdit }) => {
+  // Local state for immediate feedback effect
+  const [pendingDelta, setPendingDelta] = useState(0)
+  const [effectKey, setEffectKey] = useState(0)
+  const [externalDelta, setExternalDelta] = useState(0)  // Server-initiated changes
+  const pendingTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const pendingDeltaRef = useRef(0)  // Ref to preserve value through server updates
+  const prevScoreRef = useRef(score)
+  const expectingServerUpdateRef = useRef(false)  // Flag to track if we're waiting for server response
+
+  // Detect score changes from server (scoring effects)
+  useEffect(() => {
+    if (prevScoreRef.current !== score) {
+      const delta = score - prevScoreRef.current
+      let cleanupTimer: NodeJS.Timeout | undefined
+
+      // Only show external delta if we're not expecting a response from manual changes
+      if (!expectingServerUpdateRef.current) {
+        setExternalDelta(delta)
+        setEffectKey(prev => prev + 1)
+        // Clear external delta effect after animation
+        cleanupTimer = setTimeout(() => {
+          setExternalDelta(0)
+        }, 1500)
+      } else {
+        // We were expecting this update from our manual changes
+        expectingServerUpdateRef.current = false
+      }
+
+      // Always update prevScoreRef
+      prevScoreRef.current = score
+
+      // Return cleanup if timer was set
+      if (cleanupTimer) {
+        return () => clearTimeout(cleanupTimer)
+      }
+    }
+    return undefined
+  }, [score])
+
+  const handleScoreChange = (delta: number) => {
+    if (!canEdit) return
+
+    // Immediately update local accumulation (shown separately, not added to main score)
+    const newDelta = pendingDeltaRef.current + delta
+    pendingDeltaRef.current = newDelta
+    setPendingDelta(newDelta)
+    setEffectKey(prev => prev + 1)
+
+    // Clear existing timer
+    if (pendingTimerRef.current) {
+      clearTimeout(pendingTimerRef.current)
+    }
+
+    // Start new timer - after 250ms of no clicks, send to server and clear delta
+    pendingTimerRef.current = setTimeout(() => {
+      const finalDelta = pendingDeltaRef.current
+      if (finalDelta !== 0) {
+        expectingServerUpdateRef.current = true  // Mark that we're expecting server response
+        onChange(finalDelta)
+      }
+      // Clear both state and ref
+      pendingDeltaRef.current = 0
+      setPendingDelta(0)
+    }, 250)
+  }
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (pendingTimerRef.current) {
+        clearTimeout(pendingTimerRef.current)
+      }
+    }
+  }, [])
+
+  // Show pending delta or external delta
+  const showDelta = pendingDelta !== 0 || externalDelta !== 0
+  const deltaToShow = externalDelta !== 0 ? externalDelta : pendingDelta
+  // External delta fades out, pending delta stays visible while accumulating
+  const isExternalEffect = externalDelta !== 0
+
+  return (
+    <div className="w-full h-full aspect-square bg-gray-800 rounded flex flex-col items-center text-white select-none overflow-hidden">
+      <button
+        onClick={() => handleScoreChange(1)}
+        disabled={!canEdit}
+        className="h-1/3 w-full flex items-center justify-center bg-gray-700 hover:bg-gray-600 active:bg-gray-500 transition-colors text-base sm:text-xl font-bold disabled:opacity-50 disabled:cursor-default leading-none"
+      >
+        +
+      </button>
+      <div className="h-1/3 flex items-center justify-center font-bold text-base sm:text-xl w-full px-px relative">
+        {/* Main score - always centered, unchanged while clicking */}
+        <span className="absolute left-1/2 -translate-x-1/2">{score}</span>
+        {/* Delta effect - always on the right, no parentheses */}
+        {showDelta && (
+          <span key={effectKey} className={`absolute right-1 text-base sm:text-lg font-bold ${deltaToShow > 0 ? 'text-green-400' : 'text-red-400'} ${isExternalEffect ? 'animate-fade-out' : ''}`}>
+            {deltaToShow > 0 ? `+${deltaToShow}` : deltaToShow}
+          </span>
+        )}
+      </div>
+      <button
+        onClick={() => handleScoreChange(-1)}
+        disabled={!canEdit}
+        className="h-1/3 w-full flex items-center justify-center bg-gray-700 hover:bg-gray-600 active:bg-gray-500 transition-colors text-base sm:text-xl font-bold disabled:opacity-50 disabled:cursor-default leading-none"
+      >
+        -
+      </button>
     </div>
-    <button
-      onClick={() => canEdit && onChange(-1)}
-      disabled={!canEdit}
-      className="h-1/3 w-full flex items-center justify-center bg-gray-700 hover:bg-gray-600 active:bg-gray-500 transition-colors text-base sm:text-xl font-bold disabled:opacity-50 disabled:cursor-default leading-none"
-    >
-            -
-    </button>
-  </div>
-)
+  )
+}
 
 const RemotePile: React.FC<{ label: string, count: number, onClick?: () => void, children?: React.ReactNode, className?: string, style?: React.CSSProperties, delta?: number | null }> = ({ label, count, onClick, children, className, style, delta }) => (
   <div
@@ -246,6 +336,8 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
 
   // State for deck change indicator (+/- number)
   const [deckChangeDelta, setDeckChangeDelta] = useState<number | null>(null)
+  // Key for forcing re-render of delta animation (resets opacity to 100%)
+  const [deckChangeKey, setDeckChangeKey] = useState(0)
 
   const canPerformActions: boolean = isLocalPlayer || !!player.isDummy
   const canDrag: boolean = canPerformActions && !cursorStack
@@ -271,23 +363,25 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
       const delta = currentLength - prevLength
       prevDeckLengthRef.current = currentLength
 
-      // Accumulate delta if there's already a pending change (within 1 second)
+      // Accumulate delta if there's already a pending change (within 500ms)
       const existing = deckChangeDeltas.get(player.id)
       if (existing) {
         clearTimeout(existing.timerId)
         const newDelta = existing.delta + delta
         setDeckChangeDelta(newDelta)
+        setDeckChangeKey(prev => prev + 1) // Reset animation
         const timerId = setTimeout(() => {
           setDeckChangeDelta(null)
           deckChangeDeltas.delete(player.id)
-        }, 1000)
+        }, 500)
         deckChangeDeltas.set(player.id, { delta: newDelta, timerId })
       } else {
         setDeckChangeDelta(delta)
+        setDeckChangeKey(prev => prev + 1) // Reset animation
         const timerId = setTimeout(() => {
           setDeckChangeDelta(null)
           deckChangeDeltas.delete(player.id)
-        }, 1000)
+        }, 500)
         deckChangeDeltas.set(player.id, { delta, timerId })
       }
     }
@@ -296,9 +390,9 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      const existing = deckChangeDeltas.get(player.id)
-      if (existing) {
-        clearTimeout(existing.timerId)
+      const existingDeck = deckChangeDeltas.get(player.id)
+      if (existingDeck) {
+        clearTimeout(existingDeck.timerId)
         deckChangeDeltas.delete(player.id)
       }
     }
@@ -441,7 +535,7 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
                       <div className="relative z-20">
                         <span className="text-base sm:text-lg font-bold">{player.deck.length}</span>
                         {deckChangeDelta !== null && (
-                          <span className={`absolute left-full top-0 ml-1 text-base sm:text-lg font-bold animate-fade-out ${deckChangeDelta > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          <span key={deckChangeKey} className={`absolute left-full top-0 ml-1 text-base sm:text-lg font-bold animate-fade-out ${deckChangeDelta > 0 ? 'text-green-400' : 'text-red-400'}`}>
                             {deckChangeDelta > 0 ? `+${deckChangeDelta}` : deckChangeDelta}
                           </span>
                         )}
@@ -496,7 +590,11 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
             </DropZone>
 
             {/* Score */}
-            <RemoteScore score={player.score} onChange={onScoreChange} canEdit={canPerformActions} />
+            <RemoteScore
+              score={player.score}
+              onChange={onScoreChange}
+              canEdit={canPerformActions}
+            />
           </div>
         </div>
 
@@ -797,7 +895,11 @@ const PlayerPanel: React.FC<PlayerPanelProps> = memo(({
 
             {/* Score Counter - at right edge */}
             <div className="aspect-square">
-              <RemoteScore score={player.score} onChange={onScoreChange} canEdit={canPerformActions} />
+              <RemoteScore
+                score={player.score}
+                onChange={onScoreChange}
+                canEdit={canPerformActions}
+              />
             </div>
           </div>
 

@@ -89,11 +89,11 @@ export function handleChangePlayerColor(ws, data) {
 
 /**
  * Handle UPDATE_PLAYER_SCORE message
- * Updates a player's score
+ * Updates a player's score by delta (server-authoritative)
  */
 export function handleUpdatePlayerScore(ws, data) {
   try {
-    const { gameId, playerId, score } = data;
+    const { gameId, playerId, delta } = data;
     const gameState = getGameState(gameId);
 
     if (!gameState) {
@@ -113,28 +113,34 @@ export function handleUpdatePlayerScore(ws, data) {
       return;
     }
 
-    // Validate score is a finite number and non-negative
-    const numericScore = Number(score);
-    if (!Number.isFinite(numericScore) || numericScore < 0) {
+    // Validate delta is a finite number
+    const numericDelta = Number(delta);
+    if (!Number.isFinite(numericDelta)) {
       ws.send(JSON.stringify({
         type: 'ERROR',
-        message: 'Invalid score value'
+        message: 'Invalid delta value'
       }));
       return;
     }
 
     const previousScore = player.score;
-    player.score = numericScore;
-    const scoreDelta = numericScore - previousScore;
+    player.score = previousScore + numericDelta;
+
+    // Ensure score doesn't go negative
+    if (player.score < 0) {
+      player.score = 0;
+    }
+
+    const actualDelta = player.score - previousScore;
 
     // Log score change (only if score actually changed)
-    if (scoreDelta !== 0) {
+    if (actualDelta !== 0) {
       logAction(gameId, GameActions.SCORE_CHANGED, {
         playerId: player.id,
         playerName: player.name,
         previousScore,
-        newScore: numericScore,
-        delta: scoreDelta
+        newScore: player.score,
+        delta: actualDelta
       }).catch();
     }
 

@@ -1,6 +1,14 @@
 import type { Card, GameState, AbilityAction } from '../types/types.js'
 import { READY_STATUS_DEPLOY, READY_STATUS_SETUP, READY_STATUS_COMMIT } from '../../shared/constants/readyStatuses.js'
 
+// Use console.log instead of logger to avoid Node.js dependency issues
+// when this file is imported by client code via @server alias
+const debugLog = (...args: unknown[]) => {
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[autoAbilities]', ...args)
+  }
+}
+
 // Ability activation type - when can this ability be used?
 export type AbilityActivationType = 'deploy' | 'setup' | 'commit'
 
@@ -917,44 +925,95 @@ export const getCardAbilityTypes = (card: Card): AbilityActivationType[] => {
 }
 
 /**
- * Get all cards that have a specific ability type
+ * Get all cards that have a specific ability type (includes both baseId and baseIdAlt)
  */
 const getCardsWithAbilityType = (activationType: AbilityActivationType): string[] => {
-  const cardIds = CARD_ABILITIES
+  const cardIds: string[] = []
+  CARD_ABILITIES
     .filter(a => a.activationType === activationType)
-    .map(a => a.baseId)
+    .forEach(a => {
+      cardIds.push(a.baseId)
+      if (a.baseIdAlt) {
+        cardIds.push(...a.baseIdAlt)
+      }
+    })
   // Remove duplicates
   return [...new Set(cardIds)]
 }
 
 /**
  * Resets ready statuses for all cards owned by a player at start of their turn.
+ * First removes old phase-specific statuses, then adds fresh ones to ensure clean state.
+ * Also adds phase-specific statuses to newly played cards that don't have them yet.
  */
 export const resetReadyStatusesForTurn = (gameState: GameState, playerId: number): void => {
   const setupCards = getCardsWithAbilityType('setup')
   const commitCards = getCardsWithAbilityType('commit')
+
+  debugLog(`[resetReadyStatusesForTurn] Player ${playerId}, setupCards: [${setupCards.join(', ')}], commitCards: [${commitCards.join(', ')}]`)
+
+  let cardsProcessed = 0
+  let setupAdded = 0
+  let commitAdded = 0
+  let setupAddedToNew = 0
+  let commitAddedToNew = 0
 
   gameState.board.forEach(row => {
     row.forEach(cell => {
       const card = cell.card
       if (card && card.ownerId === playerId) {
         const baseId = card.baseId || ''
+        cardsProcessed++
 
-        // Re-ready Setup ability
+        debugLog(`[resetReadyStatusesForTurn] Processing card: ${card.name} (baseId: ${baseId}, ownerId: ${card.ownerId})`)
+
+        // === SETUP ABILITY ===
         if (setupCards.includes(baseId)) {
+          const hadSetup = hasReadyStatus(card, READY_STATUS_SETUP)
+          // Remove old setup status first, then add fresh one
+          removeReadyStatus(card, READY_STATUS_SETUP)
           addReadyStatus(card, READY_STATUS_SETUP, playerId)
+          setupAdded++
+          if (!hadSetup) {
+            setupAddedToNew++
+            debugLog(`[resetReadyStatusesForTurn] Added NEW READY_STATUS_SETUP to ${card.name} (newly played card)`)
+          } else {
+            debugLog(`[resetReadyStatusesForTurn] Reset READY_STATUS_SETUP for ${card.name}`)
+          }
+        } else {
+          // Remove setup status if card no longer has setup ability (e.g. was transformed)
+          removeReadyStatus(card, READY_STATUS_SETUP)
         }
-        // Re-ready Commit ability
+
+        // === COMMIT ABILITY ===
         if (commitCards.includes(baseId)) {
+          const hadCommit = hasReadyStatus(card, READY_STATUS_COMMIT)
+          // Remove old commit status first, then add fresh one
+          removeReadyStatus(card, READY_STATUS_COMMIT)
           addReadyStatus(card, READY_STATUS_COMMIT, playerId)
+          commitAdded++
+          if (!hadCommit) {
+            commitAddedToNew++
+            debugLog(`[resetReadyStatusesForTurn] Added NEW READY_STATUS_COMMIT to ${card.name} (newly played card)`)
+          } else {
+            debugLog(`[resetReadyStatusesForTurn] Reset READY_STATUS_COMMIT for ${card.name}`)
+          }
+        } else {
+          // Remove commit status if card no longer has commit ability
+          removeReadyStatus(card, READY_STATUS_COMMIT)
         }
       }
     })
   })
+
+  debugLog(`[resetReadyStatusesForTurn] Processed ${cardsProcessed} cards, reset setup: ${setupAdded} (${setupAddedToNew} new), commit: ${commitAdded} (${commitAddedToNew} new)`)
 }
 
 /**
  * Initializes ready statuses when a card enters the battlefield.
+ * IMPORTANT: Only adds DEPLOY status. Phase-specific statuses (SETUP, COMMIT)
+ * are managed by resetReadyStatusesForTurn() during Draw phase to ensure
+ * they are available at the correct time each turn.
  */
 export const initializeReadyStatuses = (card: Card, ownerId: number): void => {
   if (!card.statuses) {
@@ -967,11 +1026,10 @@ export const initializeReadyStatuses = (card: Card, ownerId: number): void => {
     let readyStatusType = ''
     if (ability.activationType === 'deploy') {
       readyStatusType = READY_STATUS_DEPLOY
-    } else if (ability.activationType === 'setup') {
-      readyStatusType = READY_STATUS_SETUP
-    } else if (ability.activationType === 'commit') {
-      readyStatusType = READY_STATUS_COMMIT
     }
+    // Note: setup and commit statuses are NOT added here
+    // They are added by resetReadyStatusesForTurn() during Draw phase
+    // This ensures phase-specific abilities are available each turn regardless of when card was played
 
     if (readyStatusType && !card.statuses.some(s => s.type === readyStatusType)) {
       card.statuses.push({ type: readyStatusType, addedByPlayerId: ownerId })
@@ -997,6 +1055,11 @@ export const removeAllReadyStatuses = (card: Card): void => {
  * Determines if a specific card can be activated in the current state.
  * If gameState is provided, allows any player to control dummy player's cards
  * (when the dummy is the active player).
+ *
+ * Priority order for ability activation:
+ * 1. Setup abilities - ONLY in Setup phase (phase 1)
+ * 2. Commit abilities - ONLY in Commit phase (phase 3)
+ * 3. Deploy abilities - in ANY phase (if no phase-specific ability is active)
  */
 export const canActivateAbility = (
   card: Card,
@@ -1024,34 +1087,40 @@ export const canActivateAbility = (
 
   const abilities = getAbilitiesForCard(card)
 
-  // === 1. CHECK DEPLOY ABILITY (works in any phase) ===
-  const deployAbility = abilities.find(a => a.activationType === 'deploy')
-  if (deployAbility && hasReadyStatus(card, READY_STATUS_DEPLOY)) {
-    if (deployAbility.supportRequired && !hasStatus(card, 'Support', activePlayerId)) {
-      return false
+  // Check if card has a phase-specific ability for current phase
+  const hasPhaseSpecificAbility =
+    (phaseIndex === 1 && abilities.some(a => a.activationType === 'setup')) ||
+    (phaseIndex === 3 && abilities.some(a => a.activationType === 'commit'))
+
+  // === 1. CHECK SETUP ABILITY (ONLY in Setup phase) ===
+  if (phaseIndex === 1) {
+    const setupAbility = abilities.find(a => a.activationType === 'setup')
+    if (setupAbility && hasReadyStatus(card, READY_STATUS_SETUP)) {
+      if (setupAbility.supportRequired && !hasStatus(card, 'Support', activePlayerId)) {
+        return false
+      }
+      return true
     }
-    return true
   }
 
-  // === 2. CHECK PHASE ABILITY ===
-  let readyStatusType = ''
-  let phaseAbilityType: AbilityActivationType | null = null
-
-  // Setup abilities only work in Setup phase (phase 0)
-  // Commit abilities only work in Commit phase (phase 2)
-  // Main phase (phase 1) is for manual actions, no phase abilities
-  if (phaseIndex === 0) {
-    readyStatusType = READY_STATUS_SETUP
-    phaseAbilityType = 'setup'
-  } else if (phaseIndex === 2) {
-    readyStatusType = READY_STATUS_COMMIT
-    phaseAbilityType = 'commit'
+  // === 2. CHECK COMMIT ABILITY (ONLY in Commit phase) ===
+  if (phaseIndex === 3) {
+    const commitAbility = abilities.find(a => a.activationType === 'commit')
+    if (commitAbility && hasReadyStatus(card, READY_STATUS_COMMIT)) {
+      if (commitAbility.supportRequired && !hasStatus(card, 'Support', activePlayerId)) {
+        return false
+      }
+      return true
+    }
   }
 
-  if (readyStatusType && phaseAbilityType && hasReadyStatus(card, readyStatusType)) {
-    const phaseAbility = abilities.find(a => a.activationType === phaseAbilityType)
-    if (phaseAbility) {
-      if (phaseAbility.supportRequired && !hasStatus(card, 'Support', activePlayerId)) {
+  // === 3. CHECK DEPLOY ABILITY (works in ANY phase if no phase-specific ability for this phase) ===
+  // Deploy abilities can be used in any phase UNLESS the card has a phase-specific ability
+  // for the current phase that should take priority
+  if (!hasPhaseSpecificAbility) {
+    const deployAbility = abilities.find(a => a.activationType === 'deploy')
+    if (deployAbility && hasReadyStatus(card, READY_STATUS_DEPLOY)) {
+      if (deployAbility.supportRequired && !hasStatus(card, 'Support', activePlayerId)) {
         return false
       }
       return true
@@ -1065,7 +1134,7 @@ export const canActivateAbility = (
  * Gets the appropriate ability action for a card based on:
  * 1. Ready statuses (what abilities are available)
  * 2. Current phase
- * 3. Priority: Deploy > Phase Ability
+ * 3. Priority: Setup (phase 1) > Commit (phase 3) > Deploy (any phase)
  */
 export const getCardAbilityAction = (
   card: Card,
@@ -1090,45 +1159,53 @@ export const getCardAbilityAction = (
   // Use card owner for ability actions (dummy's cards use dummy as actor)
   const actorId = card.ownerId ?? localPlayerId ?? 0
 
-  // Priority 1: Deploy (if ready)
-  if (hasReadyStatus(card, READY_STATUS_DEPLOY)) {
+  const phaseIndex = gameState.currentPhase
+
+  // Check if card has a phase-specific ability for current phase
+  const hasPhaseSpecificAbility =
+    (phaseIndex === 1 && abilities.some(a => a.activationType === 'setup')) ||
+    (phaseIndex === 3 && abilities.some(a => a.activationType === 'commit'))
+
+  // Priority 1: Setup ability (ONLY in Setup phase / phase 1)
+  if (phaseIndex === 1) {
+    const setupAbility = abilities.find(a => a.activationType === 'setup')
+    if (setupAbility && hasReadyStatus(card, READY_STATUS_SETUP)) {
+      if (setupAbility.supportRequired && !hasStatus(card, 'Support', actorId)) {
+        return null
+      }
+      const action = setupAbility.getAction(card, gameState, actorId, coords)
+      if (action) {
+        return { ...action, readyStatusToRemove: READY_STATUS_SETUP }
+      }
+    }
+  }
+
+  // Priority 2: Commit ability (ONLY in Commit phase / phase 3)
+  if (phaseIndex === 3) {
+    const commitAbility = abilities.find(a => a.activationType === 'commit')
+    if (commitAbility && hasReadyStatus(card, READY_STATUS_COMMIT)) {
+      if (commitAbility.supportRequired && !hasStatus(card, 'Support', actorId)) {
+        return null
+      }
+      const action = commitAbility.getAction(card, gameState, actorId, coords)
+      if (action) {
+        return { ...action, readyStatusToRemove: READY_STATUS_COMMIT }
+      }
+    }
+  }
+
+  // Priority 3: Deploy ability (works in ANY phase if no phase-specific ability for this phase)
+  // Deploy abilities can be used in any phase UNLESS the card has a phase-specific ability
+  // for the current phase that should take priority
+  if (!hasPhaseSpecificAbility) {
     const deployAbility = abilities.find(a => a.activationType === 'deploy')
-    if (deployAbility) {
+    if (deployAbility && hasReadyStatus(card, READY_STATUS_DEPLOY)) {
       if (deployAbility.supportRequired && !hasStatus(card, 'Support', actorId)) {
         return null
       }
       const action = deployAbility.getAction(card, gameState, actorId, coords)
       if (action) {
         return { ...action, isDeployAbility: true, readyStatusToRemove: READY_STATUS_DEPLOY }
-      }
-    }
-  }
-
-  // Priority 2: Phase Ability
-  const phaseIndex = gameState.currentPhase
-  let readyStatusType = ''
-  let phaseAbilityType: AbilityActivationType | null = null
-
-  // Setup abilities only work in Setup phase (phase 0)
-  // Commit abilities only work in Commit phase (phase 2)
-  // Main phase (phase 1) is for manual actions, no phase abilities
-  if (phaseIndex === 0) {
-    readyStatusType = READY_STATUS_SETUP
-    phaseAbilityType = 'setup'
-  } else if (phaseIndex === 2) {
-    readyStatusType = READY_STATUS_COMMIT
-    phaseAbilityType = 'commit'
-  }
-
-  if (readyStatusType && phaseAbilityType && hasReadyStatus(card, readyStatusType)) {
-    const phaseAbility = abilities.find(a => a.activationType === phaseAbilityType)
-    if (phaseAbility) {
-      if (phaseAbility.supportRequired && !hasStatus(card, 'Support', actorId)) {
-        return null
-      }
-      const action = phaseAbility.getAction(card, gameState, actorId, coords)
-      if (action) {
-        return { ...action, readyStatusToRemove: readyStatusType }
       }
     }
   }

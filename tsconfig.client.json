@@ -18,7 +18,7 @@
     "paths": {
       "@/*": ["./client/*"],
       "@content/*": ["./client/content/*"],
-      "@shared/*": ["./server/types/*"],
+      "@shared/*": ["./shared/*"],
       "@server/*": ["./server/*"]
     }
   },

@@ -24,7 +24,7 @@ import {
   resetInactivityTimer,
   broadcastGamesList
 } from '../services/gameLifecycle.js';
-import { performDrawPhase } from './phaseManagement.js';
+import { performPreparationPhase } from './phaseManagement.js';
 import { openGameLog, logGameAction as logAction, GameActions } from '../utils/gameLogger.js';
 
 const MAX_PLAYERS = 4;
@@ -163,23 +163,23 @@ export function handleUpdateState(ws, data) {
       // Update game state with client's state
       const clientPlayers = updatedGameState.players;
 
-      // Check if client is requesting Draw Phase (phase -1) with an active player
-      // Universal rule: phase=-1 + activePlayerId = draw 1 card for that player
+      // Check if client is requesting Preparation Phase (phase 0) with an active player
+      // Universal rule: phase=0 + activePlayerId = draw 1 card for that player
       // This works for ALL players - first time, same player, different player, doesn't matter
-      // IMPORTANT: Only draw if server phase is NOT already 0 (prevents duplicate draws from rapid client updates)
-      // OR if server IS in phase 0 but client sent -1 (stale state from another client's draw) - just restore phase, don't draw again
-      const clientRequestsDraw = clientPhase === -1 && clientActivePlayerId !== null && clientActivePlayerId !== undefined && previousPhase !== 0;
+      // IMPORTANT: Only draw if server phase is NOT already 1 (prevents duplicate draws from rapid client updates)
+      // OR if server IS in phase 1 but client sent 0 (stale state from another client's draw) - just restore phase, don't draw again
+      const clientRequestsDraw = clientPhase === 0 && clientActivePlayerId !== null && clientActivePlayerId !== undefined && previousPhase !== 1;
 
-      // Detect if client is sending stale phase -1 after server has already processed draw
-      // This happens when client sends UPDATE_STATE with old phase=-1 after server already moved to phase 0
-      const isStalePhaseAfterDraw = clientPhase === -1 && previousPhase === 0;
+      // Detect if client is sending stale phase 0 after server has already processed draw
+      // This happens when client sends UPDATE_STATE with old phase=0 after server already moved to phase 1
+      const isStalePhaseAfterDraw = clientPhase === 0 && previousPhase === 1;
 
       // Perform draw FIRST on existing state (before any client data is applied)
-      // Universal: phase=-1 with activePlayerId AND server not in phase 0 = draw for that player
+      // Universal: phase=0 with activePlayerId AND server not in phase 1 = draw for that player
       let drawnPlayerId: number | null = null;
       if (clientRequestsDraw) {
         existingGameState.activePlayerId = clientActivePlayerId;
-        performDrawPhase(existingGameState);
+        performPreparationPhase(existingGameState);
         drawnPlayerId = clientActivePlayerId;
         existingGameState.lastDrawnPlayerId = clientActivePlayerId;  // Track for merge logic
       } else if (clientActivePlayerId !== null && clientActivePlayerId !== undefined) {
@@ -196,6 +196,9 @@ export function handleUpdateState(ws, data) {
       // IMPORTANT: Include ownerId in the key to prevent cross-player card removal
       const serverAnnouncedCardIds = new Set<string>();
       const serverDiscardCardIds = new Set<string>();
+
+      // Collect announced card IDs and discard card IDs from SERVER state BEFORE Object.assign
+      // This is needed to clean up duplicates when command cards move from announced to discard
       existingGameState.players.forEach((player: any) => {
         if (player.announcedCard?.id && player.announcedCard.ownerId !== undefined) {
           serverAnnouncedCardIds.add(`${player.announcedCard.id}_${player.announcedCard.ownerId}`);
@@ -225,7 +228,12 @@ export function handleUpdateState(ws, data) {
         roundWinners: existingGameState.roundWinners
       };
 
-      Object.assign(existingGameState, updatedGameState);
+      // Copy all properties EXCEPT players (we'll handle players separately to properly merge card state)
+      const { players: _, ...restOfUpdatedState } = updatedGameState as any;
+      Object.assign(existingGameState, restOfUpdatedState);
+
+      // Restore server players after draw (preserves server-managed state like hand/deck)
+      existingGameState.players = serverPlayersAfterDraw;
 
       // Restore round end state if it was active (prevent client from closing the modal)
       if (preserveRoundEndState) {
@@ -235,11 +243,11 @@ export function handleUpdateState(ws, data) {
         existingGameState.roundWinners = roundEndStateToPreserve.roundWinners;
       }
 
-      // IMPORTANT: Restore phase to 0 if we just performed a draw OR if server phase was 0 but client sent -1
-      // This prevents stale client state (phase=-1 from another client's draw) from triggering duplicate draws
-      // Object.assign above may have overwritten the server's phase with client's stale phase (-1)
-      if (drawnPlayerId !== null || (previousPhase === 0 && existingGameState.currentPhase === -1)) {
-        existingGameState.currentPhase = 0;
+      // IMPORTANT: Restore phase to 1 (Setup) if we just performed a draw OR if server phase was 1 but client sent 0
+      // This prevents stale client state (phase=0 from another client's draw) from triggering duplicate draws
+      // Object.assign above may have overwritten the server's phase with client's stale phase (0)
+      if (drawnPlayerId !== null || (previousPhase === 1 && existingGameState.currentPhase === 0)) {
+        existingGameState.currentPhase = 1;
       }
 
       // Merge players: smart merge of card state based on who sent the update
@@ -271,22 +279,22 @@ export function handleUpdateState(ws, data) {
               // Client's hand/deck are stale (they haven't received the draw yet)
               const justDrewForThisPlayer = drawnPlayerId === clientPlayer.id;
 
-            // Also detect stale phase -1 after draw: client is sending old state but server already processed draw
+            // Also detect stale phase 0 (Preparation) after draw: client is sending old state but server already processed draw
             // In this case, preserve server's card state for the active player to prevent regression
               const isStaleStateForActivePlayer = isStalePhaseAfterDraw && clientPlayer.id === clientActivePlayerId;
 
-            // CRITICAL: When client sends phase=-1 with a different activePlayerId (turn transition),
+            // CRITICAL: When client sends phase=0 (Preparation) with a different activePlayerId (turn transition),
             // the previous active player's card state in the client's message is STALE.
             // The client doesn't know about cards that were drawn during previous turns.
             // We must preserve server's card state for ALL players except possibly the NEW active player.
-            const isTurnTransition = clientPhase === -1 && clientActivePlayerId !== null && previousActivePlayerId !== clientActivePlayerId;
+            const isTurnTransition = clientPhase === 0 && clientActivePlayerId !== null && previousActivePlayerId !== clientActivePlayerId;
             const isNewActivePlayer = clientPlayer.id === clientActivePlayerId && isTurnTransition;
 
             // Only trust client's card state if:
             // 1. Client is authoritative (sending player, active player, or dummy player)
             // 2. We didn't just draw for this player (client state is stale)
-            // 3. This isn't stale phase -1 after draw
-            // 4. For turn transitions (phase=-1), only trust NEW active player's state, preserve server state for all others
+            // 3. This isn't stale phase 0 (Preparation) after draw
+            // 4. For turn transitions (phase=0), only trust NEW active player's state, preserve server state for all others
             if (trustClientCards && !justDrewForThisPlayer && !isStaleStateForActivePlayer && (isNewActivePlayer || !isTurnTransition)) {
               // Client is authoritative for their own card state (they just played/moved cards)
 
@@ -301,6 +309,8 @@ export function handleUpdateState(ws, data) {
                 playerToken: serverPlayerAfterDraw.playerToken,
                 isDummy: serverPlayerAfterDraw.isDummy,
                 isSpectator: serverPlayerAfterDraw.isSpectator,
+                // ALWAYS use server's score - score is server-authoritative, updated via UPDATE_PLAYER_SCORE
+                score: serverPlayerAfterDraw.score,
                 // Use client's boardHistory during normal play, server's during turn transitions
                 boardHistory: useClientHistory ? clientPlayer.boardHistory :
                   (serverPlayerAfterDraw.boardHistory || clientPlayer.boardHistory || []),
@@ -308,7 +318,7 @@ export function handleUpdateState(ws, data) {
             } else {
               // For other players, preserve server's card state (prevent stale client data)
               // Also used when we just drew for this player (client state is stale)
-              // Also used when client sends stale phase -1 after server already processed draw
+              // Also used when client sends stale phase 0 (Preparation) after server already processed draw
               // Also used during turn transitions for all players except the new active player
 
               // Special case for boardHistory:
@@ -323,7 +333,7 @@ export function handleUpdateState(ws, data) {
               // Solution: filter out the drawn card from client's deck before merging
               //
               // Check if this player just drew (from either path: UPDATE_STATE or toggle active player)
-              // - justDrewForThisPlayer: set when UPDATE_STATE path with phase=-1
+              // - justDrewForThisPlayer: set when UPDATE_STATE path with phase=0 (Preparation)
               // - existingGameState.lastDrawnPlayerId: set by toggle active player path
               const lastDrawnPlayerId = existingGameState.lastDrawnPlayerId;
               const justDrewForThisPlayerGlobal = lastDrawnPlayerId === clientPlayer.id;
@@ -358,7 +368,8 @@ export function handleUpdateState(ws, data) {
                 isDisconnected: clientPlayer.isDisconnected ?? serverPlayerAfterDraw.isDisconnected,
                 disconnectTimestamp: clientPlayer.disconnectTimestamp ?? serverPlayerAfterDraw.disconnectTimestamp,
                 autoDrawEnabled: clientPlayer.autoDrawEnabled ?? serverPlayerAfterDraw.autoDrawEnabled,
-                score: clientPlayer.score ?? serverPlayerAfterDraw.score,
+                // ALWAYS use server's score - score is server-authoritative, updated via UPDATE_PLAYER_SCORE
+                score: serverPlayerAfterDraw.score,
                 // Use merged card lists
                 hand: mergedHand,
                 deck: mergedDeck,

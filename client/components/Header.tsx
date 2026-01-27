@@ -559,16 +559,19 @@ const Header = memo<HeaderProps>(({
               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M15 6 L8 12 L15 18 Z" /></svg>
             </button>
             {TURN_PHASES.map((phase, index) => {
-              // Treat Draw phase (-1) as Setup (0) for UI display
-              const isCurrentPhase = currentPhase === index || (currentPhase === -1 && index === 0)
+              // Phase mapping: TURN_PHASES indices (0-3) map to phases (1-4)
+              // Preparation phase (0) is hidden and maps to Setup display (index 0)
+              const visiblePhaseIndex = index + 1  // 1=Setup, 2=Main, 3=Commit, 4=Scoring
+              const isCurrentPhase = currentPhase === visiblePhaseIndex || currentPhase === 0
               // Get active player's color for current phase highlight
               const activePlayerColor = activePlayerId !== null ? playerColorMap.get(activePlayerId) : undefined
               const colorClasses = activePlayerColor ? PLAYER_COLORS[activePlayerColor as keyof typeof PLAYER_COLORS]?.bg : 'bg-yellow-500'
-              const bgClass = isCurrentPhase ? `${colorClasses} text-white` : 'text-gray-400 hover:text-white'
+              // Only show highlight color if game is started
+              const bgClass = isGameStarted && isCurrentPhase ? `${colorClasses} text-white` : 'text-gray-400 hover:text-white'
               return (
                 <div
                   key={phase}
-                  onClick={() => isGameStarted && onSetPhase(index)}
+                  onClick={() => isGameStarted && onSetPhase(visiblePhaseIndex)}
                   className={`
                     px-3 py-1.5 text-sm font-bold uppercase transition-all duration-200 cursor-pointer rounded
                     ${isCurrentPhase ? '' : ''}

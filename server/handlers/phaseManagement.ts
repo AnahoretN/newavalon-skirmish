@@ -1,6 +1,13 @@
 /**
  * @file Phase management handlers
  * Handles turn phase navigation and auto-abilities toggle
+ *
+ * Phase Structure:
+ * 0: Preparation (hidden) - draws card, resets statuses, checks round end, auto-transitions to Setup
+ * 1: Setup - setup abilities only
+ * 2: Main - card play
+ * 3: Commit - commit abilities only
+ * 4: Scoring - full phase with auto-pass after point selection
  */
 
 import { logger } from '../utils/logger.js';
@@ -41,9 +48,9 @@ export function checkRoundEnd(gameState: any, isDeselectCheck = false): boolean 
     return false;
   }
 
-  // Only check during Setup phase (0) when the starting player becomes active
+  // Only check during Setup phase (1) when the starting player becomes active
   // This ensures the round is checked exactly once per round cycle
-  if (gameState.currentPhase !== 0) {
+  if (gameState.currentPhase !== 1) {
     return false;
   }
 
@@ -188,7 +195,7 @@ export function handleToggleAutoDraw(ws, data) {
 /**
  * Handle TOGGLE_ACTIVE_PLAYER message
  * Sets the active player
- * Triggers the hidden Draw phase (-1) which automatically transitions to Setup (0)
+ * Triggers the Preparation phase (0) which automatically transitions to Setup (1)
  */
 export function handleToggleActivePlayer(ws, data) {
   try {
@@ -207,7 +214,7 @@ export function handleToggleActivePlayer(ws, data) {
 
     // Toggle: if same player clicked, deselect; otherwise select new player
     if (previousActivePlayerId === playerId) {
-      gameState.activePlayerId = undefined;
+      gameState.activePlayerId = null;
 
       // Log turn end
       logAction(gameId, GameActions.TURN_ENDED, {
@@ -218,7 +225,7 @@ export function handleToggleActivePlayer(ws, data) {
       // Check for round end when deselecting the starting player during Setup phase
       // This handles the case where the starting player is already active and players
       // are deselecting to end their turn (completing a round cycle)
-      if (playerId === gameState.startingPlayerId && gameState.currentPhase === 0) {
+      if (playerId === gameState.startingPlayerId && gameState.currentPhase === 1) {
         if (checkRoundEnd(gameState, true)) {
           endRound(gameState);
         }
@@ -226,9 +233,9 @@ export function handleToggleActivePlayer(ws, data) {
     } else {
       gameState.activePlayerId = playerId;
 
-      // Enter Draw phase (-1) when selecting a new active player
-      // The draw phase will auto-draw a card and transition to Setup (0)
-      gameState.currentPhase = -1;
+      // Enter Preparation phase (0) when selecting a new active player
+      // The preparation phase will auto-draw a card and transition to Setup (1)
+      gameState.currentPhase = 0;
 
       // Log turn start (before draw so we capture the player becoming active)
       logAction(gameId, GameActions.TURN_STARTED, {
@@ -237,7 +244,7 @@ export function handleToggleActivePlayer(ws, data) {
         previousPlayerId: previousActivePlayerId
       }).catch();
 
-      performDrawPhase(gameState);
+      performPreparationPhase(gameState);
       gameState.lastDrawnPlayerId = playerId;  // Track for merge logic
     }
 
@@ -248,25 +255,39 @@ export function handleToggleActivePlayer(ws, data) {
 }
 
 /**
- * Perform the hidden Draw phase
- * Draws exactly 1 card for the active player and transitions to Setup
+ * Perform the Preparation phase (hidden from players)
+ * Sub-steps:
+ *   0.1: Check round completion
+ *   0.2: Reset card statuses (readySetup, readyCommit)
+ *   0.3: Draw card if auto-draw enabled
+ *   0.4: (reserved for future actions)
+ *   0.5: Auto-transition to Setup phase (1)
  * Simple rule: draw 1 card from deck to hand when player becomes active
  */
-export function performDrawPhase(gameState: any): void {
+export function performPreparationPhase(gameState: any): void {
+  // Sub-step 0.1: Check round completion (done at end after Setup transition)
+  // Sub-step 0.2: Reset phase-specific ready statuses
+  // Sub-step 0.3: Draw card
+  // Sub-step 0.4: Reserved
+  // Sub-step 0.5: Auto-transition to Setup
+
   if (gameState.activePlayerId === null) {
-    gameState.currentPhase = 0;
+    gameState.currentPhase = 1;
     return;
   }
 
   const activePlayer = gameState.players.find((p: any) => p.id === gameState.activePlayerId);
   if (!activePlayer) {
-    gameState.currentPhase = 0;
+    gameState.currentPhase = 1;
     return;
   }
 
+  // Sub-step 0.3: Draw card if auto-draw enabled
   // Check if player has cards to draw
   if (!activePlayer.deck || activePlayer.deck.length === 0) {
-    gameState.currentPhase = 0;
+    // No cards to draw, skip to status reset and transition
+    resetReadyStatusesForTurn(gameState, gameState.activePlayerId);
+    gameState.currentPhase = 1;
     return;
   }
 
@@ -285,7 +306,7 @@ export function performDrawPhase(gameState: any): void {
     const deckBefore = activePlayer.deck.length;
     activePlayer.deck.splice(0, 1);
     activePlayer.hand.push(cardToDraw);
-    logger.info(`[DrawPhase] Player ${activePlayer.id} (${activePlayer.name}) drew ${cardToDraw?.name}, deck: ${deckBefore} -> ${activePlayer.deck.length}, hand: ${activePlayer.hand.length}`);
+    logger.info(`[PreparationPhase] Player ${activePlayer.id} (${activePlayer.name}) drew ${cardToDraw?.name}, deck: ${deckBefore} -> ${activePlayer.deck.length}, hand: ${activePlayer.hand.length}`);
 
     // Log card draw
     logAction(gameState.gameId, GameActions.CARD_DRAWN, {
@@ -298,16 +319,16 @@ export function performDrawPhase(gameState: any): void {
     }).catch();
   }
 
-  // Reset phase-specific ready statuses (readySetup, readyCommit) for the active player
-  // This happens during Draw phase, before entering Setup phase
+  // Sub-step 0.2: Reset phase-specific ready statuses (readySetup, readyCommit) for the active player
+  // This happens during Preparation phase, before entering Setup phase
   resetReadyStatusesForTurn(gameState, gameState.activePlayerId);
 
-  // Transition to Setup phase
-  gameState.currentPhase = 0;
+  // Sub-step 0.5: Transition to Setup phase
+  gameState.currentPhase = 1;
 
-  // Check for round end when entering Setup phase
-  // This check happens after every draw phase, so when first player's turn comes around
-  // and they enter Setup phase with phase=0, we check if round should end
+  // Sub-step 0.1 (deferred): Check for round end when entering Setup phase
+  // This check happens after every preparation phase, so when first player's turn comes around
+  // and they enter Setup phase with phase=1, we check if round should end
   if (checkRoundEnd(gameState)) {
     endRound(gameState);
   }
@@ -316,6 +337,8 @@ export function performDrawPhase(gameState: any): void {
 /**
  * Handle NEXT_PHASE message
  * Advances to the next turn phase
+ * When at Scoring (4), passes turn to next player and starts their Preparation phase
+ * Preparation phase ALWAYS auto-transitions to Setup phase (1)
  */
 export function handleNextPhase(ws, data) {
   try {
@@ -338,18 +361,85 @@ export function handleNextPhase(ws, data) {
       return;
     }
 
-    // Get current phase or default to 0
-    const currentPhase = gameState.currentPhase || 0;
+    const currentPhase = gameState.currentPhase || 1;
 
-    // Advance to next phase, wrapping around
-    const nextPhase = (currentPhase + 1) % 4;
+    // When at Scoring phase (4), next phase triggers turn passing
+    if (currentPhase === 4) {
+      // Store finishing player ID BEFORE changing activePlayerId
+      const finishingPlayerId = gameState.activePlayerId;
+
+      // Pass turn to next player
+      let nextPlayerId = gameState.activePlayerId;
+      if (nextPlayerId !== undefined && nextPlayerId !== null) {
+        const sortedPlayers = [...gameState.players].sort((a, b) => a.id - b.id);
+        const currentIndex = sortedPlayers.findIndex(p => p.id === nextPlayerId);
+        if (currentIndex !== -1) {
+          const nextIndex = (currentIndex + 1) % sortedPlayers.length;
+          nextPlayerId = sortedPlayers[nextIndex].id;
+        }
+      }
+
+      // Set new active player
+      gameState.activePlayerId = nextPlayerId ?? null;
+      gameState.currentPhase = 0;  // Preparation phase - will auto-transition to Setup
+
+      // Remove Stun from finishing player's cards
+      if (finishingPlayerId !== null && finishingPlayerId !== undefined) {
+        gameState.board.forEach((row: any[]) => {
+          row.forEach((cell: any) => {
+            if (cell.card?.ownerId === finishingPlayerId && cell.card.statuses) {
+              const stunIndices = cell.card.statuses
+                .map((s, i) => s.type === 'Stun' ? i : -1)
+                .filter(i => i !== -1)
+                .sort((a, b) => b - a); // Remove in reverse order to avoid index shifting
+              stunIndices.forEach(idx => {
+                cell.card.statuses.splice(idx, 1);
+              });
+            }
+          });
+        });
+      }
+
+      // Clear enteredThisTurn flags
+      gameState.board.forEach((row: any[]) => {
+        row.forEach((cell: any) => {
+          if (cell.card) {
+            delete cell.card.enteredThisTurn;
+          }
+        });
+      });
+
+      // Log turn start
+      logAction(gameId, GameActions.TURN_STARTED, {
+        playerId: nextPlayerId,
+        playerName: gameState.players.find((p: any) => p.id === nextPlayerId)?.name,
+        previousPlayerId: finishingPlayerId
+      }).catch();
+
+      // Perform Preparation phase - draws card, resets statuses, auto-transitions to Setup
+      performPreparationPhase(gameState);
+
+      // Log phase change
+      logAction(gameId, GameActions.PHASE_CHANGED, {
+        playerId: ws.playerId,
+        fromPhase: currentPhase,
+        toPhase: gameState.currentPhase,
+        activePlayerId: gameState.activePlayerId
+      }).catch();
+
+      broadcastToGame(gameId, gameState);
+      return;
+    }
+
+    // Normal phase transitions within the same player's turn
+    const nextPhase = currentPhase + 1;
     gameState.currentPhase = nextPhase;
 
     // Log phase change
     logAction(gameId, GameActions.PHASE_CHANGED, {
       playerId: ws.playerId,
       fromPhase: currentPhase,
-      toPhase: nextPhase,
+      toPhase: gameState.currentPhase,
       activePlayerId: gameState.activePlayerId
     }).catch();
 
@@ -362,6 +452,8 @@ export function handleNextPhase(ws, data) {
 /**
  * Handle PREV_PHASE message
  * Goes back to the previous turn phase
+ * NOTE: This is for navigation/correction, not for turn passing
+ * Does not go below phase 1 (Setup) - Preparation is only entered via turn passing
  */
 export function handlePrevPhase(ws, data) {
   try {
@@ -384,11 +476,11 @@ export function handlePrevPhase(ws, data) {
       return;
     }
 
-    // Get current phase or default to 0
-    const currentPhase = gameState.currentPhase || 0;
+    const currentPhase = gameState.currentPhase || 1;
 
-    // Go to previous phase, wrapping around
-    const prevPhase = (currentPhase - 1 + 4) % 4;
+    // Go to previous phase, but don't go below Setup (1)
+    // Preparation (0) is only accessed via turn passing, not manual navigation
+    const prevPhase = Math.max(1, currentPhase - 1);
     gameState.currentPhase = prevPhase;
 
     broadcastToGame(gameId, gameState);
@@ -400,7 +492,7 @@ export function handlePrevPhase(ws, data) {
 /**
  * Handle SET_PHASE message
  * Sets the turn phase to a specific index
- * Draw phase (-1) is now an explicit phase that triggers auto-draw
+ * Preparation phase (0) is hidden but can be set for turn passing
  */
 export function handleSetPhase(ws, data) {
   try {
@@ -433,17 +525,16 @@ export function handleSetPhase(ws, data) {
       return;
     }
 
-    // Allow phases -1 (Draw) to 3 (Scoring)
-    if (numericPhaseIndex < -1 || numericPhaseIndex >= 4) {
+    // Allow phases 0 (Preparation) to 4 (Scoring)
+    if (numericPhaseIndex < 0 || numericPhaseIndex > 4) {
       ws.send(JSON.stringify({
         type: 'ERROR',
-        message: 'Invalid phase index. Must be between -1 and 3'
+        message: 'Invalid phase index. Must be between 0 and 4'
       }));
       return;
     }
 
-    // Set the phase directly - auto-draw is handled by UPDATE_STATE when phase=-1 is sent
-    // This keeps a single path: client sends UPDATE_STATE with phase=-1 + activePlayerId → draw
+    // Set the phase directly
     gameState.currentPhase = numericPhaseIndex;
 
     broadcastToGame(gameId, gameState);
@@ -456,13 +547,17 @@ export function handleSetPhase(ws, data) {
  * Handle START_NEXT_ROUND message
  * Starts the next round after round end modal is closed
  * Resets scores to 0, increments round number, closes modal
+ * Does NOT pass turn - the same starting player continues
  */
 export function handleStartNextRound(ws, data) {
+  logger.info(`[handleStartNextRound] Received START_NEXT_ROUND message: gameId=${data.gameId}, playerId=${ws.playerId}`);
+
   try {
     const { gameId } = data;
     const gameState = getGameState(gameId);
 
     if (!gameState) {
+      logger.warn(`[handleStartNextRound] Game not found: ${gameId}`);
       ws.send(JSON.stringify({
         type: 'ERROR',
         message: 'Game not found'
@@ -471,12 +566,15 @@ export function handleStartNextRound(ws, data) {
     }
 
     if (!gameState.isGameStarted) {
+      logger.warn(`[handleStartNextRound] Game not started: ${gameId}`);
       ws.send(JSON.stringify({
         type: 'ERROR',
         message: 'Game has not started'
       }));
       return;
     }
+
+    logger.info(`[handleStartNextRound] Processing round transition: currentRound=${gameState.currentRound}, gameWinner=${gameState.gameWinner}, isRoundEndModalOpen=${gameState.isRoundEndModalOpen}`);
 
     // If game has a winner, this is a "Continue Game" action - reset for new match
     if (gameState.gameWinner !== null) {
@@ -495,6 +593,7 @@ export function handleStartNextRound(ws, data) {
     } else {
       // Starting next round of current match
       gameState.currentRound++;
+      gameState.roundEndTriggered = false; // Reset the triggered flag for the new round
 
       // Log round start
       logAction(gameId, GameActions.ROUND_STARTED, {
@@ -512,11 +611,22 @@ export function handleStartNextRound(ws, data) {
     gameState.isRoundEndModalOpen = false;
 
     // Keep the same starting player - they continue with their setup phase
-    // Phase stays at 0 (Setup) for the starting player to begin
+    // IMPORTANT: Reset phase-specific ready statuses for the starting player
+    // This ensures setup/commit abilities are available in the new round
+    // NOTE: This does NOT pass turn, just resets statuses
+    if (gameState.startingPlayerId !== undefined && gameState.startingPlayerId !== null) {
+      gameState.activePlayerId = gameState.startingPlayerId;
+      gameState.currentPhase = 1;  // Set to Setup phase
+      resetReadyStatusesForTurn(gameState as any, gameState.startingPlayerId);
+    }
+
+    logger.info(`[handleStartNextRound] Broadcasting updated game state: gameId=${gameId}, currentRound=${gameState.currentRound}, isRoundEndModalOpen=${gameState.isRoundEndModalOpen}, activePlayerId=${gameState.activePlayerId}, currentPhase=${gameState.currentPhase}`);
 
     broadcastToGame(gameId, gameState);
+
+    logger.info('[handleStartNextRound] Successfully broadcasted game state');
   } catch (error) {
-    logger.error('Failed to start next round:', error);
+    logger.error('[handleStartNextRound] Failed to start next round:', error);
   }
 }
 
@@ -562,8 +672,3 @@ export function handleStartNewMatch(ws, data) {
     logger.error('Failed to start new match:', error);
   }
 }
-
-/**
- * Handle START_NEW_MATCH message
- * Resets the entire game state for a new match
- */

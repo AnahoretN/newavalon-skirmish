@@ -284,6 +284,11 @@ export function broadcastToGame(gameId, gameState, excludeClient = null) {
     const sanitizedGameState = sanitizeGameState(gameState);
     const message = JSON.stringify(sanitizedGameState);
 
+    // Debug logging for round transition
+    if (sanitizedGameState.isRoundEndModalOpen === false && sanitizedGameState.currentRound >= 2) {
+      logger.info(`[broadcastToGame] Broadcasting state for round transition: gameId=${gameId}, currentRound=${sanitizedGameState.currentRound}, isRoundEndModalOpen=${sanitizedGameState.isRoundEndModalOpen}, hasPlayers=${!!sanitizedGameState.players}, hasBoard=${!!sanitizedGameState.board}`);
+    }
+
     // Get the client game map to find all clients associated with this game
     const clientGameMap = getClientGameMap();
 

@@ -90,6 +90,13 @@ export const PLAYER_COLOR_NAMES: PlayerColor[] = ['blue', 'purple', 'red', 'gree
 
 /**
  * The sequence of phases in a player's turn.
+ * Note: Phase 0 (Preparation) is hidden from UI and handles:
+ *   - Round completion checks
+ *   - Card status resets (readySetup, readyCommit)
+ *   - Auto-draw if enabled
+ *   - Auto-transition to Setup phase (1)
+ *
+ * Visible phases are 1-4: Setup, Main, Commit, Scoring
  */
 export const TURN_PHASES = [
   'Setup',

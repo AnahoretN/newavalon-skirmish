@@ -3,8 +3,7 @@ import type { Card, GameState, AbilityAction, CommandContext, DragItem, Player, 
 import { getCardAbilityAction, canActivateAbility } from '@server/utils/autoAbilities'
 import { checkActionHasTargets, validateTarget } from '@server/utils/targeting'
 import { hasReadyAbilityInCurrentPhase } from '@/utils/autoAbilities'
-import { recalculateBoardStatuses } from '@server/utils/boardUtils'
-import { deepCloneState, TIMING } from '@/utils/common'
+import { TIMING } from '@/utils/common'
 import { logger } from '@/utils/logger'
 
 interface UseAppAbilitiesProps {
@@ -872,11 +871,19 @@ export const useAppAbilities = ({
     const { mode, sourceCard, sourceCoords, payload, isDeployAbility } = abilityMode
 
     if (mode === 'SCORE_LAST_PLAYED_LINE' && abilityMode.sourceCoords) {
+      // Prevent multiple clicks
+      if (interactionLock.current) {
+        return
+      }
+
       const { row: r1, col: c1 } = abilityMode.sourceCoords
       const { row: r2, col: c2 } = coords
       if (r1 !== r2 && c1 !== c2) {
         return
       }
+
+      // Lock interaction to prevent multiple clicks
+      interactionLock.current = true
 
       // Calculate score locally first
       const playerId = gameState.activePlayerId!
@@ -889,6 +896,7 @@ export const useAppAbilities = ({
         cStart = c2; cEnd = c2
         rStart = 0; rEnd = gridSize - 1
       } else {
+        interactionLock.current = false
         return
       }
 
@@ -921,48 +929,26 @@ export const useAppAbilities = ({
         }
       }
 
+      // Clear ability mode immediately to prevent further interactions
+      setAbilityMode(null)
+
       // Send floating texts for all players to see
       if (scoreEvents.length > 0) {
         triggerFloatingText(scoreEvents)
       }
 
-      // Use updateState directly to ensure atomic update of score + phase
-      updateState((prevState: GameState) => {
-        const newState: GameState = deepCloneState(prevState)
-        const player = newState.players.find(p => p.id === playerId)
-        if (player) {
-          player.score += totalScore
-        }
-        // Exit scoring step and move to next player
-        // Set phase to -1 (Draw Phase) so server will auto-draw and transition to Setup (0)
-        newState.isScoringStep = false
-        newState.currentPhase = -1
-        const finishingPlayerId = playerId
-        newState.board.forEach(row => {
-          row.forEach(cell => {
-            if (cell.card?.ownerId === finishingPlayerId && cell.card.statuses) {
-              const stunIndex = cell.card.statuses.findIndex(s => s.type === 'Stun')
-              if (stunIndex !== -1) {
-                cell.card.statuses.splice(stunIndex, 1)
-              }
-            }
-          })
-        })
-        // Recalculate statuses after Stun removal
-        newState.board = recalculateBoardStatuses(newState)
+      // Update score using updatePlayerScore which handles both local update and server sync
+      if (totalScore > 0) {
+        updatePlayerScore(playerId, totalScore)
+      }
 
-        let nextPlayerId = finishingPlayerId
-        const sortedPlayers = [...newState.players].sort((a, b) => a.id - b.id)
-        const currentIndex = sortedPlayers.findIndex(p => p.id === nextPlayerId)
-        if (currentIndex !== -1) {
-          const nextIndex = (currentIndex + 1) % sortedPlayers.length
-          nextPlayerId = sortedPlayers[nextIndex].id
-        }
-        newState.activePlayerId = nextPlayerId
+      // Pass turn after scoring - nextPhase will send NEXT_PHASE to server
+      nextPhase()
 
-        return newState
-      })
-      setAbilityMode(null)
+      // Unlock interaction after a short delay
+      setTimeout(() => {
+        interactionLock.current = false
+      }, 200)
       return
     }
 
@@ -1091,7 +1077,8 @@ export const useAppAbilities = ({
         if (!payload.skipNextPhase) {
           nextPhase()
         }
-        setTimeout(() => setAbilityMode(null), TIMING.MODE_CLEAR_DELAY)
+        setAbilityMode(null)  // Clear immediately to prevent duplicate processing
+        return  // Return early to prevent reaching handleLineSelection at line 1098
       }
     }
   }, [abilityMode, gameState, localPlayerId, scoreLine, nextPhase, setAbilityMode, modifyBoardCardPower, markAbilityUsed, scoreDiagonal, updatePlayerScore, triggerFloatingText, commandContext, updateState])
@@ -1108,7 +1095,7 @@ export const useAppAbilities = ({
       return
     }
 
-    if (abilityMode && (abilityMode.mode === 'SCORE_LAST_PLAYED_LINE' || abilityMode.mode === 'SELECT_LINE_END' || abilityMode.mode === 'SELECT_DIAGONAL')) {
+    if (abilityMode && (abilityMode.mode === 'SCORE_LAST_PLAYED_LINE' || abilityMode.mode === 'SELECT_LINE_END')) {
       handleLineSelection(boardCoords)
       return
     }
@@ -1644,7 +1631,7 @@ export const useAppAbilities = ({
     }
     const { mode, sourceCoords, sourceCard, payload, isDeployAbility } = abilityMode
 
-    if (mode === 'SCORE_LAST_PLAYED_LINE' || mode === 'SELECT_LINE_END' || mode === 'SELECT_DIAGONAL') {
+    if (mode === 'SCORE_LAST_PLAYED_LINE' || mode === 'SELECT_LINE_END') {
       handleLineSelection(boardCoords)
       return
     }
